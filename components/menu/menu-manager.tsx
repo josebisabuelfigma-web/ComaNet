@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Eye, EyeOff, Pencil, Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Eye, EyeOff, GripVertical, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,6 +25,7 @@ import {
   deleteCategory,
   deleteProduct,
   renameCategory,
+  reorderCategories,
   saveCombo,
   saveProduct,
   setProductActive,
@@ -53,6 +54,26 @@ export function MenuManager({ categories, products, comboItems, currency, canEdi
   const [productDialog, setProductDialog] = React.useState<ProductDialog>(null);
   const [comboDialog, setComboDialog] = React.useState<ComboDialog>(null);
   const [comboSelection, setComboSelection] = React.useState<Record<string, number>>({});
+
+  const [orderedCategories, setOrderedCategories] = React.useState(categories);
+  const [dragId, setDragId] = React.useState<string | null>(null);
+  const [overId, setOverId] = React.useState<string | null>(null);
+  React.useEffect(() => setOrderedCategories(categories), [categories]);
+
+  async function moveCategory(fromId: string, toId: string) {
+    const from = orderedCategories.findIndex((c) => c.id === fromId);
+    const to = orderedCategories.findIndex((c) => c.id === toId);
+    setDragId(null);
+    setOverId(null);
+    if (from < 0 || to < 0 || from === to) return;
+    const next = [...orderedCategories];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    setOrderedCategories(next);
+    const result = await reorderCategories(next.map((c) => c.id));
+    if (result?.error) setError(result.error);
+    router.refresh();
+  }
 
   const regularProducts = products.filter((p) => !p.is_combo);
   const comboCategory = categories.find((c) => c.is_combo_category) ?? null;
@@ -221,12 +242,75 @@ export function MenuManager({ categories, products, comboItems, currency, canEdi
         </div>
       )}
 
-      {categories.map((category) => {
+      {canEdit && categories.length > 1 && (
+        <p className="-mb-3 text-xs text-brand-muted">
+          Arrastra una categoría por el icono <GripVertical className="inline h-3 w-3" /> (o usa las flechas) para
+          cambiar el orden en que la ven tus clientes.
+        </p>
+      )}
+
+      {orderedCategories.map((category, index) => {
         const items = products.filter((p) => p.category_id === category.id);
         return (
-          <Card key={category.id}>
+          <Card
+            key={category.id}
+            onDragOver={(e) => {
+              if (!dragId) return;
+              e.preventDefault();
+              setOverId(category.id);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              if (dragId) void moveCategory(dragId, category.id);
+            }}
+            className={`${dragId === category.id ? "opacity-40" : ""} ${
+              overId === category.id && dragId && dragId !== category.id ? "ring-2 ring-brand" : ""
+            }`}
+          >
             <CardHeader className="flex-row flex-wrap items-center justify-between gap-2 space-y-0">
-              <CardTitle className="min-w-0 break-words">{category.name}</CardTitle>
+              <div className="flex min-w-0 items-center gap-1">
+                {canEdit && (
+                  <>
+                    <span
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.effectAllowed = "move";
+                        setDragId(category.id);
+                      }}
+                      onDragEnd={() => {
+                        setDragId(null);
+                        setOverId(null);
+                      }}
+                      className="cursor-grab rounded p-1 text-brand-muted hover:bg-black/5 active:cursor-grabbing"
+                      title="Arrastra para mover"
+                      aria-label="Arrastra para mover la categoría"
+                    >
+                      <GripVertical className="h-5 w-5" />
+                    </span>
+                    <div className="flex flex-col">
+                      <button
+                        type="button"
+                        disabled={index === 0}
+                        onClick={() => moveCategory(category.id, orderedCategories[index - 1].id)}
+                        className="rounded text-brand-muted hover:bg-black/5 disabled:opacity-30"
+                        aria-label="Subir categoría"
+                      >
+                        <ArrowUp className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={index === orderedCategories.length - 1}
+                        onClick={() => moveCategory(category.id, orderedCategories[index + 1].id)}
+                        className="rounded text-brand-muted hover:bg-black/5 disabled:opacity-30"
+                        aria-label="Bajar categoría"
+                      >
+                        <ArrowDown className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </>
+                )}
+                <CardTitle className="ml-1 min-w-0 break-words">{category.name}</CardTitle>
+              </div>
               {canEdit && (
                 <div className="flex items-center gap-1">
                   {category.is_combo_category ? (

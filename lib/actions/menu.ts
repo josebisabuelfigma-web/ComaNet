@@ -317,3 +317,24 @@ export async function saveCombo(
   await logActivity(profile, comboId ? "Editó combo" : "Creó combo", parsed.data.name);
   refresh();
 }
+/** Guarda el orden de las categorías tal como las dejó el administrador. */
+export async function reorderCategories(orderedIds: string[]): Promise<ActionResult> {
+  const profile = await requireOrgRole("owner");
+  const supabase = await createClient();
+
+  const results = await Promise.all(
+    orderedIds.map((id, index) =>
+      supabase
+        .from("menu_categories")
+        .update({ sort_order: index })
+        .eq("id", id)
+        .eq("organization_id", profile.organization_id)
+    )
+  );
+  const failed = results.find((r) => r.error);
+  if (failed?.error) {
+    return { error: friendlyDbError(failed.error, "reorderCategories", "No se pudo guardar el orden") };
+  }
+
+  refresh();
+}

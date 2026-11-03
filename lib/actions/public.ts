@@ -67,8 +67,8 @@ export async function createPublicOrder(input: CheckoutInput): Promise<CheckoutR
 
   const currency = org?.currency ?? "COP";
   const money = (n: number) => formatMoney(n, currency);
-  const lines = ((items as OrderItem[]) ?? []).map((item, index) => {
-    const base = `${index + 1}. ${item.quantity} x ${item.product_name} — ${money(
+  const lines = ((items as OrderItem[]) ?? []).map((item) => {
+    const base = `• ${item.quantity} x ${item.product_name} — ${money(
       Number(item.unit_price) * item.quantity
     )}`;
     const parts = (item.combo_snapshot ?? [])

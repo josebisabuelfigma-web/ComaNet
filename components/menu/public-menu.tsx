@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ArrowLeft, Check, Loader2, Minus, Plus, ShoppingBag, Trash2 } from "lucide-react";
+import { ArrowLeft, ArrowUp, Check, ChevronRight, Loader2, Minus, Plus, ShoppingBag, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -54,6 +54,20 @@ export function PublicMenu({
 
   const [categories, setCategories] = React.useState(initialCategories);
   const [confirmCancel, setConfirmCancel] = React.useState(false);
+  // null = inicio con todas las categorías; si no, el id de la categoría abierta.
+  const [activeCategoryId, setActiveCategoryId] = React.useState<string | null>(null);
+  const [showTop, setShowTop] = React.useState(false);
+  React.useEffect(() => {
+    const onScroll = () => setShowTop(window.scrollY > 400);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  function openCategory(id: string | null) {
+    setActiveCategoryId(id);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
   // Se reevalúa cada minuto para que el aviso aparezca/desaparezca solo.
   const [now, setNow] = React.useState(() => new Date());
   React.useEffect(() => {
@@ -168,6 +182,13 @@ export function PublicMenu({
 
   const productById = React.useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
   const blocked = React.useMemo(() => unavailableProductIds(products, comboItems), [products, comboItems]);
+
+  const visibleCategories = React.useMemo(
+    () => categories.filter((c) => products.some((p) => p.category_id === c.id)),
+    [categories, products]
+  );
+  // Si la categoría abierta desaparece (la ocultaron), se vuelve al inicio.
+  const activeCategory = visibleCategories.find((c) => c.id === activeCategoryId) ?? null;
 
   // Líneas del carrito con su producto vigente (puede haberse agotado/ocultado).
   const lines = cart.map((line) => {
@@ -304,20 +325,36 @@ export function PublicMenu({
             {settings.welcome_message && <p className="text-sm text-white/70">{settings.welcome_message}</p>}
           </div>
         </div>
-        {categories.length > 0 && (
-          <nav className="mx-auto flex max-w-3xl gap-2 overflow-x-auto px-4 pb-3">
-            {categories.map((category) => (
-              <a
+      </header>
+      {visibleCategories.length > 0 && (
+        <div className="sticky top-0 z-20 bg-brand-ink text-white shadow-md">
+          <nav className="mx-auto flex max-w-3xl gap-2 overflow-x-auto px-4 py-3">
+            <button
+              type="button"
+              onClick={() => openCategory(null)}
+              className={`whitespace-nowrap rounded-full px-4 py-1.5 text-sm ${
+                activeCategoryId === null ? "bg-brand font-semibold text-brand-ink" : "bg-white/10 hover:bg-white/20"
+              }`}
+            >
+              Inicio
+            </button>
+            {visibleCategories.map((category) => (
+              <button
                 key={category.id}
-                href={`#cat-${category.id}`}
-                className="whitespace-nowrap rounded-full bg-white/10 px-4 py-1.5 text-sm hover:bg-white/20"
+                type="button"
+                onClick={() => openCategory(category.id)}
+                className={`whitespace-nowrap rounded-full px-4 py-1.5 text-sm ${
+                  activeCategoryId === category.id
+                    ? "bg-brand font-semibold text-brand-ink"
+                    : "bg-white/10 hover:bg-white/20"
+                }`}
               >
                 {category.name}
-              </a>
+              </button>
             ))}
           </nav>
-        )}
-      </header>
+        </div>
+      )}
 
       <main className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6">
         {outsideHours && !ordersClosed && (
@@ -340,13 +377,53 @@ export function PublicMenu({
           </p>
         )}
 
-        {categories.map((category) => {
-          const items = products.filter((p) => p.category_id === category.id);
-          if (items.length === 0) return null;
-          return (
-            <section key={category.id} id={`cat-${category.id}`} className="scroll-mt-4">
-              <h2 className="mb-3 text-lg font-semibold text-brand-ink">{category.name}</h2>
-              <div className="flex flex-col gap-3">
+        {activeCategory === null ? (
+          <section className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {visibleCategories.map((category) => {
+              const items = products.filter((p) => p.category_id === category.id);
+              const cover = items.find((p) => p.image_url)?.image_url;
+              return (
+                <button
+                  key={category.id}
+                  type="button"
+                  onClick={() => openCategory(category.id)}
+                  className="flex items-center gap-3 rounded-[var(--radius-brand-md)] bg-white p-3 text-left shadow-sm transition-shadow hover:shadow-md"
+                >
+                  {cover ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={cover} alt="" className="h-20 w-20 shrink-0 rounded-[var(--radius-brand-sm)] object-cover" />
+                  ) : (
+                    <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-[var(--radius-brand-sm)] bg-brand/15 text-2xl font-bold text-brand-ink">
+                      {category.name.charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="break-words text-lg font-semibold text-brand-ink">{category.name}</p>
+                    <p className="text-sm text-brand-muted">
+                      {items.length} {items.length === 1 ? "producto" : "productos"}
+                    </p>
+                  </div>
+                  <ChevronRight className="h-5 w-5 shrink-0 text-brand-muted" />
+                </button>
+              );
+            })}
+          </section>
+        ) : (
+          (() => {
+            const category = activeCategory;
+            const items = products.filter((p) => p.category_id === category.id);
+            return (
+              <section>
+                <button
+                  type="button"
+                  onClick={() => openCategory(null)}
+                  className="mb-3 flex items-center gap-1.5 rounded-[var(--radius-brand-sm)] px-2 py-1.5 text-sm font-medium text-brand-ink hover:bg-black/5"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  Volver al inicio
+                </button>
+                <h2 className="mb-3 text-lg font-semibold text-brand-ink">{category.name}</h2>
+                <div className="flex flex-col gap-3">
                 {items.map((product) => {
                   const soldOut = blocked.has(product.id);
                   const inCart = cart
@@ -400,10 +477,19 @@ export function PublicMenu({
                     </article>
                   );
                 })}
-              </div>
-            </section>
-          );
-        })}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+                  className="mx-auto mt-6 flex items-center gap-1.5 rounded-full border border-brand-border bg-white px-5 py-2 text-sm font-medium text-brand-ink shadow-sm hover:bg-black/5"
+                >
+                  <ArrowUp className="h-4 w-4" />
+                  Arriba
+                </button>
+              </section>
+            );
+          })()
+        )}
 
         {products.length === 0 && (
           <p className="py-10 text-center text-brand-muted">La carta aún no tiene productos.</p>
@@ -428,6 +514,19 @@ export function PublicMenu({
           setCartOpen(false);
         }}
       />
+
+      {activeCategory && showTop && !cartOpen && (
+        <button
+          type="button"
+          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+          aria-label="Ir arriba"
+          className={`fixed right-4 z-30 flex h-11 w-11 items-center justify-center rounded-full bg-brand-ink text-white shadow-lg ${
+            itemCount > 0 ? "bottom-24" : "bottom-6"
+          }`}
+        >
+          <ArrowUp className="h-5 w-5" />
+        </button>
+      )}
 
       {itemCount > 0 && !cartOpen && (
         <div className="fixed inset-x-0 bottom-0 z-30 p-4">

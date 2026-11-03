@@ -1,8 +1,12 @@
-import Image from "next/image";
-
 import { requireRole } from "@/lib/auth";
-import { LogoutButton } from "@/components/logout-button";
+import { Sidebar, type SidebarNavItem } from "@/components/sidebar";
 import { BrandFooter } from "@/components/brand-footer";
+
+const NAV_ITEMS: SidebarNavItem[] = [
+  { href: "/superadmin", label: "Organizaciones", icon: "superadmin" },
+  { href: "/superadmin/organizaciones/nueva", label: "Nueva organización", icon: "modulos" },
+  { href: "/dashboard/cuenta", label: "Mi Cuenta", icon: "cuenta" },
+];
 
 export default async function SuperAdminLayout({
   children,
@@ -12,19 +16,18 @@ export default async function SuperAdminLayout({
   const profile = await requireRole("super_admin");
 
   return (
-    <div className="flex min-h-screen flex-col bg-background">
-      <header className="flex items-center justify-between bg-brand-ink px-4 py-4 text-white md:px-8">
-        <div className="flex items-center gap-3">
-          <Image src="/brand/logo.svg" alt="Logo" width={32} height={32} />
-          <div>
-            <p className="text-sm font-semibold">ComaNet — Super Administrador</p>
-            <p className="text-xs text-white/60">{profile.full_name}</p>
-          </div>
-        </div>
-        <LogoutButton className="text-white/70 hover:text-white" />
-      </header>
-      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8 md:px-8">{children}</main>
-      <BrandFooter />
+    <div className="flex min-h-screen bg-background">
+      <Sidebar
+        fullName={profile.full_name}
+        roleLabel="Super Administrador"
+        items={NAV_ITEMS}
+        brandName="ComaNet"
+        brandLogoUrl={null}
+      />
+      <main className="flex min-w-0 flex-1 flex-col px-4 py-6 pt-20 md:px-8 md:py-8 md:pt-8">
+        <div className="mx-auto w-full max-w-5xl flex-1">{children}</div>
+        <BrandFooter />
+      </main>
     </div>
   );
 }
