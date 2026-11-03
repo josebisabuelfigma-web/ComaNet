@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 900" role="img" aria-label="ComaNet — Del pedido a la caja, sin enredos">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FF6B2C"/>
+      <stop offset="1" stop-color="#FFB020"/>
+    </linearGradient>
+  </defs>
+  <rect width="900" height="900" fill="#050816"/>
+  <path d="M382 245h136a16 16 0 0 1 16 16v206l-17-16-17 16-17-16-17 16-17-16-17 16-17-16-17 16V261a16 16 0 0 1 16-16z" fill="url(#g)" transform="translate(0 0)"/>
+  <path d="M410 335l30 30 52-58" fill="none" stroke="#050816" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="405" y="395" width="90" height="15" rx="7.5" fill="#050816" opacity="0.45"/>
+  <rect x="405" y="421" width="57" height="15" rx="7.5" fill="#050816" opacity="0.45"/>
+  <text x="450" y="628" text-anchor="middle" font-family="Inter, 'Segoe UI', Roboto, Arial, sans-serif" font-size="108" fill="#fff" letter-spacing="-2"><tspan font-weight="700">Coma</tspan><tspan font-weight="300">Net</tspan></text>
+  <text x="450" y="688" text-anchor="middle" font-family="Inter, 'Segoe UI', Roboto, Arial, sans-serif" font-size="20" fill="#8B90A8" letter-spacing="6">DEL PEDIDO A LA CAJA, SIN ENREDOS</text>
+</svg>

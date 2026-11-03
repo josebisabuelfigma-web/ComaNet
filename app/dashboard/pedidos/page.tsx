@@ -1,0 +1,100 @@
+import { requireOrgRole } from "@/lib/auth";
+import { requireModule, MODULE_KEYS } from "@/lib/modules";
+import { createClient } from "@/lib/supabase/server";
+import { RealtimeRefresh } from "@/components/realtime-refresh";
+import { OrderCard } from "@/components/pedidos/order-card";
+import type { Order, OrderItem } from "@/lib/supabase/types";
+
+export default async function PedidosPage() {
+  const profile = await requireOrgRole("owner", "cajero");
+  await requireModule(profile.organization_id, MODULE_KEYS.MENU_ONLINE);
+  const supabase = await createClient();
+
+  const [{ data: pending }, { data: recent }, { data: org }] = await Promise.all([
+    supabase
+      .from("orders")
+      .select("*")
+      .eq("organization_id", profile.organization_id)
+      .eq("channel", "domicilio")
+      .eq("status", "pendiente")
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("orders")
+      .select("*")
+      .eq("organization_id", profile.organization_id)
+      .eq("channel", "domicilio")
+      .in("status", ["despachado", "cancelado"])
+      .order("completed_at", { ascending: false })
+      .limit(30),
+    supabase.from("organizations").select("currency").eq("id", profile.organization_id).single(),
+  ]);
+
+  const pendingOrders = (pending as Order[]) ?? [];
+  const recentOrders = (recent as Order[]) ?? [];
+  const ids = [...pendingOrders, ...recentOrders].map((o) => o.id);
+
+  const { data: items } = ids.length
+    ? await supabase.from("order_items").select("*").in("order_id", ids).order("created_at")
+    : { data: [] as OrderItem[] };
+
+  const itemsByOrder = new Map<string, OrderItem[]>();
+  for (const item of (items as OrderItem[]) ?? []) {
+    const list = itemsByOrder.get(item.order_id) ?? [];
+    list.push(item);
+    itemsByOrder.set(item.order_id, list);
+  }
+
+  const currency = org?.currency ?? "COP";
+
+  return (
+    <div className="flex flex-col gap-6">
+      <RealtimeRefresh
+        organizationId={profile.organization_id}
+        tables={["orders", "order_items"]}
+      />
+
+      <div>
+        <h1 className="text-2xl font-semibold text-brand-ink">Pedidos a domicilio</h1>
+        <p className="text-sm text-brand-muted">
+          Los pedidos llegan aquí al instante. Cuando salgan, márcalos como despachados.
+        </p>
+      </div>
+
+      <section className="flex flex-col gap-3">
+        <h2 className="text-lg font-semibold text-brand-ink">Pendientes ({pendingOrders.length})</h2>
+        {pendingOrders.length === 0 ? (
+          <div className="rounded-[var(--radius-brand-md)] border border-dashed border-brand-border bg-white p-8 text-center text-brand-muted">
+            No hay pedidos pendientes.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            {pendingOrders.map((order) => (
+              <OrderCard
+                key={order.id}
+                order={order}
+                items={itemsByOrder.get(order.id) ?? []}
+                currency={currency}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      {recentOrders.length > 0 && (
+        <section className="flex flex-col gap-3">
+          <h2 className="text-lg font-semibold text-brand-ink">Historial reciente</h2>
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            {recentOrders.map((order) => (
+              <OrderCard
+                key={order.id}
+                order={order}
+                items={itemsByOrder.get(order.id) ?? []}
+                currency={currency}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
