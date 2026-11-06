@@ -142,6 +142,10 @@ export type Order = {
   created_at: string;
   completed_at: string | null;
   completed_by: string | null;
+  kitchen_sent_at: string | null;
+  kitchen_done_at: string | null;
+  payment_requested_at: string | null;
+  payment_requested_method: PaymentMethod | null;
 };
 
 export type OrderItem = {
@@ -156,7 +160,19 @@ export type OrderItem = {
   combo_snapshot: ComboSnapshotLine[] | null;
   kitchen_status: "pendiente" | "listo";
   kitchen_done_at: string | null;
+  sent_to_kitchen_at: string | null;
   created_at: string;
+};
+
+export type KitchenChange = {
+  id: string;
+  organization_id: string;
+  order_id: string;
+  kind: "envio" | "agregado" | "modificado";
+  description: string;
+  created_by: string | null;
+  created_at: string;
+  acked_at: string | null;
 };
 
 export type CashSession = {
@@ -183,10 +199,13 @@ export type CashSession = {
 export type CashMovement = {
   id: string;
   organization_id: string;
-  session_id: string;
+  session_id: string | null;
   type: "ingreso" | "egreso";
   amount: number;
   description: string;
+  payment_method: PaymentMethod;
+  invoice_path: string | null;
+  invoice_name: string | null;
   created_by: string | null;
   created_at: string;
 };
@@ -307,8 +326,15 @@ export type Database = {
       cash_movements: {
         Row: CashMovement;
         Insert: Partial<CashMovement> &
-          Pick<CashMovement, "organization_id" | "session_id" | "type" | "amount" | "description">;
+          Pick<CashMovement, "organization_id" | "type" | "amount" | "description">;
         Update: Partial<CashMovement>;
+        Relationships: [];
+      };
+      kitchen_changes: {
+        Row: KitchenChange;
+        Insert: Partial<KitchenChange> &
+          Pick<KitchenChange, "organization_id" | "order_id" | "kind" | "description">;
+        Update: Partial<KitchenChange>;
         Relationships: [];
       };
       activity_log: {
@@ -357,6 +383,35 @@ export type Database = {
       set_order_kitchen_status: {
         Args: { p_order_id: string; p_ready: boolean };
         Returns: undefined;
+      };
+      send_order_to_kitchen: { Args: { p_order_id: string }; Returns: undefined };
+      ack_kitchen_changes: { Args: { p_order_id: string }; Returns: undefined };
+      request_table_payment: {
+        Args: { p_order_id: string; p_payment: PaymentMethod };
+        Returns: undefined;
+      };
+      cancel_table_payment_request: { Args: { p_order_id: string }; Returns: undefined };
+      update_delivery_order_info: {
+        Args: {
+          p_order_id: string;
+          p_customer_name: string;
+          p_customer_phone: string;
+          p_address: string;
+          p_notes: string;
+          p_payment: PaymentMethod;
+        };
+        Returns: undefined;
+      };
+      register_cash_movement: {
+        Args: {
+          p_type: "ingreso" | "egreso";
+          p_amount: number;
+          p_description: string;
+          p_payment: PaymentMethod;
+          p_invoice_path: string | null;
+          p_invoice_name: string | null;
+        };
+        Returns: string;
       };
       open_cash_session: { Args: { p_opening: number }; Returns: string };
       close_cash_session: {

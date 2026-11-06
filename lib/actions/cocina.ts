@@ -41,3 +41,14 @@ export async function setOrderReady(orderId: string, ready: boolean): Promise<Ac
 
   revalidatePath("/dashboard/cocina");
 }
+
+/** Cocina confirma que vio los cambios de un pedido. */
+export async function ackKitchenChanges(orderId: string): Promise<ActionResult> {
+  await cocinaContext();
+  const supabase = await createClient();
+
+  const { error } = await supabase.rpc("ack_kitchen_changes", { p_order_id: orderId });
+  if (error) return { error: friendlyDbError(error, "ackKitchenChanges", "No se pudo marcar como visto") };
+
+  revalidatePath("/dashboard/cocina");
+}

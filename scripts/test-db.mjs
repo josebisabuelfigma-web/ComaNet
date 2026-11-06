@@ -65,13 +65,14 @@ function check(cond, name, extra = "") {
 const admin = (sql, params) => db.query(sql, params).then((r) => r.rows);
 
 /** Ejecuta fn con RLS activo como un usuario (o anon / service_role). */
-async function as(userId, fn, role = "authenticated") {
+async function as(userId, fn, role = "authenticated", commit = false) {
+  let ok = false;
   await db.query("begin");
   try {
     await db.query(`set local role ${role}`);
     await db.query("select set_config('request.jwt.claim.sub', $1, true)", [userId ?? ""]);
     await db.query("select set_config('request.jwt.claim.role', $1, true)", [role]);
-    return await fn({
+    const result = await fn({
       q: (sql, params) => db.query(sql, params).then((r) => r.rows),
       /** true si la sentencia quedó bloqueada (error o 0 filas afectadas). */
       blocked: async (sql, params) => {
@@ -97,10 +98,13 @@ async function as(userId, fn, role = "authenticated") {
         }
       },
     });
+    ok = true;
+    return result;
   } finally {
-    await db.query("rollback");
+    await db.query(commit && ok ? "commit" : "rollback");
   }
 }
+const switchTo = (id) => db.query("select set_config('request.jwt.claim.sub', $1, true)", [id]);
 
 // ---------------------------------------------------------------------------
 // Datos base
@@ -137,7 +141,7 @@ for (const m of mods) {
   await admin("insert into organization_modules (organization_id, module_id, enabled) values ($1,$2,true)", [A, m.id]);
   await admin("insert into organization_modules (organization_id, module_id, enabled) values ($1,$2,false)", [B, m.id]);
 }
-check(mods.length === 5, "5 módulos sembrados");
+check(mods.length === 6, "6 módulos sembrados");
 
 const [catA] = await admin("insert into menu_categories (organization_id, name) values ($1,'Hamburguesas') returning id", [A]);
 const [catB] = await admin("insert into menu_categories (organization_id, name) values ($1,'Pizzas') returning id", [B]);
@@ -290,8 +294,15 @@ await as(meseroA, async (s) => {
   await s.q("update order_items set unit_price=1, quantity=2 where order_id=$1", [o.id]);
   const [it2] = await s.q("select unit_price, quantity from order_items where order_id=$1", [o.id]);
   check(Number(it2.unit_price) === 15000 && it2.quantity === 2, "no se puede cambiar el precio de una línea");
+  // El mesero pide el cobro: la mesa sigue ocupada; solo caja/administrador la cierran.
+  await s.q("select request_table_payment($1,'efectivo')", [o.id]);
+  const [pr] = await s.q("select status, payment_requested_method from orders where id=$1", [o.id]);
+  check(pr.status === "abierta" && pr.payment_requested_method === "efectivo", "el mesero pide el cobro y la mesa sigue ocupada");
+  check((await s.error("select close_table_order($1,'efectivo')", [o.id])) !== null, "el mesero NO cierra la mesa");
+  await s.q("select set_config('request.jwt.claim.sub', $1, true)", [cajeroA]);
   const total = await s.q("select close_table_order($1,'efectivo') as t", [o.id]);
-  check(Number(total[0].t) === 30000, "cobro de mesa suma la cuenta", JSON.stringify(total));
+  check(Number(total[0].t) === 30000, "caja confirma y el cobro de mesa suma la cuenta", JSON.stringify(total));
+  check((await s.q("select status from orders where id=$1", [o.id]))[0].status === "pagada", "al confirmar caja la mesa queda libre");
   check((await s.error("insert into order_items (organization_id, order_id, product_id, product_name, unit_price, quantity) values ($1,$2,$3,'',0,1)", [A, o.id, burger.id])) !== null, "no se agrega a una cuenta cerrada");
   check((await s.error("delete from order_items where order_id=$1", [o.id])) !== null || true, "borrado en cuenta cerrada (bloqueado por trigger/RLS)");
   check(await s.blocked("delete from order_items where order_id=$1", [o.id]), "no se borra de una cuenta cerrada");
@@ -464,6 +475,23 @@ await admin("update restaurant_settings set pickup_enabled=true where organizati
 
 // Cocina: independiente y con permisos propios
 const [kItem] = await admin("select id from order_items where order_id=$1 limit 1", [pick.order_id]);
+check((await admin("select sent_to_kitchen_at from order_items where id=$1", [kItem.id]))[0].sent_to_kitchen_at === null, "un pedido nuevo NO aparece en cocina hasta enviarlo");
+await as(cocinaA, async (s) => {
+  check((await s.error("select set_item_kitchen_status($1,true)", [kItem.id]))?.includes("no encontrado en cocina"), "cocina no toca lo que no se ha enviado");
+  check((await s.error("select send_order_to_kitchen($1)", [pick.order_id])) !== null, "cocina NO envía pedidos a cocina");
+});
+await as(meseroA, async (s) => {
+  check((await s.error("select send_order_to_kitchen($1)", [pick.order_id])) !== null, "mesero NO envía un domicilio a cocina");
+});
+await as(ownerB, async (s) => {
+  check((await s.error("select send_order_to_kitchen($1)", [pick.order_id])) !== null, "otra organización no envía mi pedido");
+});
+await as(ownerA, async (s) => {
+  await s.q("select send_order_to_kitchen($1)", [pick.order_id]);
+  const [o] = await s.q("select kitchen_sent_at, kitchen_done_at from orders where id=$1", [pick.order_id]);
+  check(o.kitchen_sent_at !== null && o.kitchen_done_at === null, "enviar a cocina marca el inicio del tiempo");
+  check((await s.error("select send_order_to_kitchen($1)", [pick.order_id]))?.includes("No hay productos nuevos"), "no se envía dos veces lo mismo");
+}, "authenticated", true);
 await as(cocinaA, async (s) => {
   await s.q("select set_item_kitchen_status($1,true)", [kItem.id]);
   check((await s.q("select kitchen_status from order_items where id=$1", [kItem.id]))[0].kitchen_status === "listo", "cocina marca un item como listo");
@@ -487,6 +515,89 @@ await as(cajeroA, async (s) => {
   check(true, "con cocina apagada el cajero sigue despachando (flujo independiente)");
 });
 await admin("update organization_modules set enabled=true where organization_id=$1 and module_id=(select id from modules where key='cocina')", [A]);
+
+// Cocina: tiempos, avisos de cambios y edición de domicilios (todo en una transacción)
+await as(cajeroA, async (s) => {
+  await switchTo(cocinaA);
+  await s.q("select set_order_kitchen_status($1,true)", [pick.order_id]);
+  const [t] = await s.q("select kitchen_sent_at, kitchen_done_at from orders where id=$1", [pick.order_id]);
+  check(t.kitchen_done_at !== null && new Date(t.kitchen_done_at) >= new Date(t.kitchen_sent_at), "se registra el tiempo que duró en cocina");
+
+  await switchTo(cajeroA);
+  await s.q("update order_items set quantity=3 where order_id=$1", [pick.order_id]);
+  const [o] = await s.q("select subtotal, total, kitchen_done_at from orders where id=$1", [pick.order_id]);
+  check(Number(o.subtotal) === 54000 && Number(o.total) === 55000, "al editar un domicilio el total se recalcula", JSON.stringify(o));
+  check(o.kitchen_done_at === null, "pedir más de algo ya despachado lo vuelve a preparar");
+  const [c] = await s.q("select kind, description, acked_at from kitchen_changes where order_id=$1 and kind='modificado'", [pick.order_id]);
+  check(c && c.acked_at === null && c.description.includes("cantidad 2 → 3"), "cocina recibe el aviso del cambio", JSON.stringify(c));
+
+  await s.q("insert into order_items (organization_id, order_id, product_id, product_name, unit_price, quantity) values ($1,$2,$3,'',0,2)", [A, pick.order_id, papas.id]);
+  const [o2] = await s.q("select subtotal, total from orders where id=$1", [pick.order_id]);
+  check(Number(o2.subtotal) === 66000 && Number(o2.total) === 67000, "agregar un producto al domicilio suma al total", JSON.stringify(o2));
+  check((await s.q("select sent_to_kitchen_at from order_items where product_id=$1 and order_id=$2", [papas.id, pick.order_id]))[0].sent_to_kitchen_at === null, "lo agregado queda sin enviar hasta darle enviar a cocina");
+  await s.q("select send_order_to_kitchen($1)", [pick.order_id]);
+  check((await s.q("select 1 from kitchen_changes where order_id=$1 and kind='agregado' and acked_at is null", [pick.order_id])).length === 1, "lo agregado después avisa a cocina");
+
+  await switchTo(cocinaA);
+  await s.q("select ack_kitchen_changes($1)", [pick.order_id]);
+  check((await s.q("select 1 from kitchen_changes where order_id=$1 and acked_at is null", [pick.order_id])).length === 0, "cocina marca los avisos como vistos");
+
+  await switchTo(cajeroA);
+  await s.q("delete from order_items where product_id=$1 and order_id=$2", [papas.id, pick.order_id]);
+  check((await s.q("select 1 from kitchen_changes where description like 'Se quitó%' and order_id=$1", [pick.order_id])).length === 1, "quitar un producto enviado avisa a cocina");
+  await s.q("select update_delivery_order_info($1,'Marta R','3001112222','','sin hielo','transferencia')", [pick.order_id]);
+  const [info] = await s.q("select customer_name, customer_phone, payment_method from orders where id=$1", [pick.order_id]);
+  check(info.customer_name === "Marta R" && info.payment_method === "transferencia", "se editan los datos del domicilio");
+
+  await switchTo(meseroA);
+  check(await s.blocked("update order_items set quantity=9 where order_id=$1", [pick.order_id]), "mesero no edita items de un domicilio");
+  check((await s.error("select update_delivery_order_info($1,'X Y','1','','','efectivo')", [pick.order_id])) !== null, "mesero no edita datos de un domicilio");
+});
+
+// Mesa: enviar a cocina, cambios y cobro en dos pasos
+const [mesa5] = await admin("insert into restaurant_tables (organization_id, name) values ($1,'Mesa 5') returning id", [A]);
+await as(meseroA, async (s) => {
+  const [o] = await s.q("insert into orders (organization_id, channel, status, table_id) values ($1,'mesa','abierta',$2) returning id", [A, mesa5.id]);
+  await s.q("insert into order_items (organization_id, order_id, product_id, product_name, unit_price, quantity) values ($1,$2,$3,'',0,1)", [A, o.id, burger.id]);
+  check((await s.q("select sent_to_kitchen_at from order_items where order_id=$1", [o.id]))[0].sent_to_kitchen_at === null, "lo que agrega el mesero no llega solo a cocina");
+  await s.q("select send_order_to_kitchen($1)", [o.id]);
+  check((await s.q("select sent_to_kitchen_at from order_items where order_id=$1", [o.id]))[0].sent_to_kitchen_at !== null, "el mesero envía a cocina");
+  await s.q("update order_items set quantity=2, notes='sin queso' where order_id=$1", [o.id]);
+  check((await s.q("select description from kitchen_changes where order_id=$1 and kind='modificado'", [o.id])).length === 1, "el mesero modifica lo enviado y cocina recibe el aviso");
+  await s.q("select request_table_payment($1,'transferencia')", [o.id]);
+  check((await s.q("select payment_requested_at from orders where id=$1", [o.id]))[0].payment_requested_at !== null, "cobro pedido por el mesero");
+  await s.q("update order_items set quantity=3 where order_id=$1", [o.id]);
+  check((await s.q("select payment_requested_at from orders where id=$1", [o.id]))[0].payment_requested_at === null, "si la cuenta cambia, el cobro pedido se anula");
+  await s.q("select request_table_payment($1,'efectivo')", [o.id]);
+  await s.q("select cancel_table_payment_request($1)", [o.id]);
+  check((await s.q("select payment_requested_at from orders where id=$1", [o.id]))[0].payment_requested_at === null, "el mesero puede retirar el cobro pedido");
+  check((await s.error("select ack_kitchen_changes($1)", [o.id])) !== null, "mesero no marca avisos de cocina");
+});
+
+// Ingresos, egresos y facturas (módulo independiente de caja)
+await as(cajeroA, async (s) => {
+  const path = A + "/f1.pdf";
+  const [m] = await s.q("select register_cash_movement('egreso', 200000, 'pago recibo energía', 'transferencia', $1, 'recibo.pdf') as id", [path]);
+  const [row] = await s.q("select session_id, amount, invoice_path from cash_movements where id=$1", [m.id]);
+  check(row.session_id === null && Number(row.amount) === 200000 && row.invoice_path === path, "egreso de 200000 con factura, sin turno de caja");
+  check((await s.error("select register_cash_movement('egreso', 5000, 'x', 'efectivo', $1, 'a.pdf')", [B + "/a.pdf"])) !== null, "la factura debe estar en la carpeta de mi negocio");
+  check((await s.error("select register_cash_movement('egreso', 0, 'x', 'efectivo', null, null)", [])) !== null, "valor mayor a 0");
+  const [libre] = await s.q("select register_cash_movement('egreso', 1550.5, 'compra', 'efectivo', null, null) as id");
+  check(libre.id !== null, "cualquier valor (sin restricción de múltiplos)");
+});
+await as(meseroA, async (s) => {
+  check((await s.error("select register_cash_movement('egreso', 5000, 'x', 'efectivo', null, null)", [])) !== null, "mesero no registra movimientos");
+});
+await admin("update organization_modules set enabled=false where organization_id=$1 and module_id=(select id from modules where key='finanzas')", [A]);
+await as(cajeroA, async (s) => {
+  check((await s.error("select register_cash_movement('egreso', 5000, 'x', 'efectivo', $1, 'a.pdf')", [A + "/a.pdf"])) !== null, "sin el módulo de facturas no se adjuntan facturas");
+});
+await admin("update organization_modules set enabled=true where organization_id=$1 and module_id=(select id from modules where key='finanzas')", [A]);
+await admin("update organization_modules set enabled=false where organization_id=$1 and module_id in (select id from modules where key in ('caja','finanzas'))", [A]);
+await as(cajeroA, async (s) => {
+  check((await s.error("select register_cash_movement('egreso', 5000, 'x', 'efectivo', null, null)", [])) !== null, "sin caja ni finanzas no hay movimientos");
+});
+await admin("update organization_modules set enabled=true where organization_id=$1 and module_id in (select id from modules where key in ('caja','finanzas'))", [A]);
 
 // Reporte: el combo se desglosa por producto
 await admin("update orders set status='despachado', completed_at=now() where id=$1", [pick.order_id]);

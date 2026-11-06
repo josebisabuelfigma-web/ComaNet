@@ -9,11 +9,11 @@ import { playBeep, playOrderSound } from "@/lib/sound";
 interface RealtimeRefreshProps {
   organizationId: string;
   /** Tablas a escuchar; se refresca la página cuando cambia alguna. */
-  tables: ("orders" | "order_items" | "menu_products")[];
+  tables: ("orders" | "order_items" | "menu_products" | "kitchen_changes")[];
   /** Suena un aviso cuando llega un pedido nuevo. */
   beepOnNewOrder?: boolean;
   /** Suena un aviso cuando se inserta una fila en alguna de estas tablas. */
-  beepOnInsert?: ("orders" | "order_items")[];
+  beepOnInsert?: ("orders" | "order_items" | "kitchen_changes")[];
 }
 
 /** Refresca los datos del servidor en tiempo real cuando cambian las tablas indicadas. */

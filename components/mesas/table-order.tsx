@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Minus, Plus, Printer, Trash2 } from "lucide-react";
+import { ArrowLeft, ChefHat, Minus, Plus, Printer, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -11,9 +11,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import {
   addTableItem,
+  cancelTablePaymentRequest,
   changeTableItemQuantity,
   closeTable,
   openTable,
+  requestTablePayment,
+  sendTableToKitchen,
   updateTableItemNotes,
 } from "@/lib/actions/mesas";
 import { cancelOrder } from "@/lib/actions/pedidos";
@@ -38,6 +41,10 @@ interface TableOrderProps {
   comboItems: MenuComboItem[];
   currency: string;
   canCancel: boolean;
+  /** Caja y administrador: confirman el pago y liberan la mesa. */
+  canClose: boolean;
+  /** El módulo de cocina está activo: se puede enviar el pedido a cocina. */
+  kitchenEnabled: boolean;
 }
 
 export function TableOrder({
@@ -49,6 +56,8 @@ export function TableOrder({
   comboItems,
   currency,
   canCancel,
+  canClose,
+  kitchenEnabled,
 }: TableOrderProps) {
   const router = useRouter();
   const [activeCategory, setActiveCategory] = React.useState<string | null>(categories[0]?.id ?? null);
@@ -71,10 +80,22 @@ export function TableOrder({
     return result;
   }
 
+  const unsentCount = items.filter((i) => !i.sent_to_kitchen_at).length;
+  const paymentRequested = !!order?.payment_requested_at;
+
   async function handleClose(payment: PaymentMethod) {
     if (!order) return;
     const result = await run(() => closeTable(order.id, table.id, payment));
     if (!result?.error) router.push("/dashboard/mesas");
+  }
+
+  async function handleRequestPayment(payment: PaymentMethod) {
+    if (!order) return;
+    const result = await run(() => requestTablePayment(order.id, table.id, payment));
+    if (!result?.error) {
+      setPaying(false);
+      router.push("/dashboard/mesas");
+    }
   }
 
   async function handleCancel() {
@@ -98,6 +119,7 @@ export function TableOrder({
           <h1 className="flex items-center gap-2 text-2xl font-semibold text-brand-ink">
             {table.name}
             <Badge variant={order ? "default" : "success"}>{order ? "Ocupada" : "Libre"}</Badge>
+            {paymentRequested && <Badge variant="danger">Por cobrar</Badge>}
           </h1>
         </div>
       </div>
@@ -182,11 +204,27 @@ export function TableOrder({
                     item={item}
                     currency={currency}
                     disabled={busy}
+                    kitchenEnabled={kitchenEnabled}
                     onQuantity={(q) => run(() => changeTableItemQuantity(item.id, table.id, q))}
                     onNotes={(notes) => run(() => updateTableItemNotes(item.id, table.id, notes))}
                   />
                 ))}
               </ul>
+
+              {kitchenEnabled && (
+                <Button
+                  size="lg"
+                  disabled={busy || unsentCount === 0}
+                  onClick={() => run(() => sendTableToKitchen(order.id, table.id))}
+                >
+                  <ChefHat className="h-4 w-4" />
+                  {unsentCount > 0
+                    ? `Enviar a cocina (${unsentCount} ${unsentCount === 1 ? "producto" : "productos"})`
+                    : items.length > 0
+                      ? "Todo enviado a cocina"
+                      : "Enviar a cocina"}
+                </Button>
+              )}
 
               <div className="flex justify-between border-t border-brand-border pt-3 text-lg font-bold text-brand-ink">
                 <span>Total</span>
@@ -195,15 +233,72 @@ export function TableOrder({
 
               {error && <p className="text-sm text-brand-danger">{error}</p>}
 
-              {paying ? (
+              {paymentRequested ? (
+                <div className="flex flex-col gap-2 rounded-[var(--radius-brand-sm)] border border-brand-danger bg-brand-danger/10 p-3">
+                  <p className="text-sm font-semibold text-brand-danger">
+                    Por cobrar: el mesero recibió el pago (
+                    <span className="capitalize">{order.payment_requested_method}</span>). La mesa sigue ocupada
+                    hasta que caja lo confirme.
+                  </p>
+                  {canClose ? (
+                    <>
+                      <Button disabled={busy} onClick={() => handleClose(order.payment_requested_method ?? "efectivo")}>
+                        Confirmar pago recibido y liberar mesa
+                      </Button>
+                      <p className="text-xs text-brand-muted">¿Pagó de otra forma?</p>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={busy}
+                          onClick={() => handleClose("efectivo")}
+                        >
+                          Efectivo
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={busy}
+                          onClick={() => handleClose("transferencia")}
+                        >
+                          Transferencia
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-sm text-brand-muted">Espera a que caja confirme el pago.</p>
+                  )}
+                  <Button
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={() => run(() => cancelTablePaymentRequest(order.id, table.id))}
+                  >
+                    Retirar aviso y seguir editando
+                  </Button>
+                </div>
+              ) : paying ? (
                 <div className="flex flex-col gap-2">
-                  <p className="text-sm font-medium text-brand-ink">¿Cómo paga el cliente?</p>
-                  <Button disabled={busy} onClick={() => handleClose("efectivo")}>
+                  <p className="text-sm font-medium text-brand-ink">
+                    {canClose ? "¿Cómo paga el cliente?" : "¿Cómo te pagó el cliente?"}
+                  </p>
+                  <Button
+                    disabled={busy}
+                    onClick={() => (canClose ? handleClose("efectivo") : handleRequestPayment("efectivo"))}
+                  >
                     Efectivo
                   </Button>
-                  <Button disabled={busy} variant="dark" onClick={() => handleClose("transferencia")}>
+                  <Button
+                    disabled={busy}
+                    variant="dark"
+                    onClick={() => (canClose ? handleClose("transferencia") : handleRequestPayment("transferencia"))}
+                  >
                     Transferencia
                   </Button>
+                  {!canClose && (
+                    <p className="text-xs text-brand-muted">
+                      Caja confirmará el pago y entonces la mesa quedará libre.
+                    </p>
+                  )}
                   <Button variant="ghost" onClick={() => setPaying(false)}>
                     Volver
                   </Button>
@@ -211,7 +306,7 @@ export function TableOrder({
               ) : (
                 <div className="flex flex-col gap-2">
                   <Button disabled={busy || items.length === 0} onClick={() => setPaying(true)}>
-                    Cobrar cuenta
+                    {canClose ? "Cobrar cuenta" : "Ya recibí el pago"}
                   </Button>
                   <Button variant="outline" disabled={items.length === 0} onClick={() => window.print()}>
                     <Printer className="h-4 w-4" />
@@ -247,12 +342,14 @@ function CartLine({
   item,
   currency,
   disabled,
+  kitchenEnabled,
   onQuantity,
   onNotes,
 }: {
   item: OrderItem;
   currency: string;
   disabled: boolean;
+  kitchenEnabled: boolean;
   onQuantity: (quantity: number) => void;
   onNotes: (notes: string) => void;
 }) {
@@ -262,7 +359,17 @@ function CartLine({
     <li className="flex flex-col gap-1.5 py-2">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="text-sm font-medium text-brand-ink">{item.product_name}</p>
+          <p className="text-sm font-medium text-brand-ink">
+            {item.product_name}{" "}
+            {kitchenEnabled &&
+              (!item.sent_to_kitchen_at ? (
+                <Badge variant="muted">Sin enviar</Badge>
+              ) : item.kitchen_status === "listo" ? (
+                <Badge variant="success">Despachado</Badge>
+              ) : (
+                <Badge>En cocina</Badge>
+              ))}
+          </p>
           {item.combo_snapshot && (
             <p className="text-xs text-brand-muted">
               Incluye: {item.combo_snapshot.map((c) => `${c.quantity * item.quantity} ${c.name}`).join(", ")}

@@ -124,7 +124,7 @@ export function CashManager({
                   id="opening"
                   type="number"
                   min={0}
-                  step={100}
+                  step="any"
                   value={opening}
                   onChange={(event) => setOpening(event.target.value)}
                   placeholder="0"
@@ -178,8 +178,8 @@ export function CashManager({
                   </select>
                   <Input
                     type="number"
-                    min={1}
-                    step={100}
+                    min={0}
+                    step="any"
                     value={moveAmount}
                     onChange={(event) => setMoveAmount(event.target.value)}
                     placeholder="Valor"
@@ -228,7 +228,7 @@ export function CashManager({
                     id="counted"
                     type="number"
                     min={0}
-                    step={100}
+                    step="any"
                     value={counted}
                     onChange={(event) => setCounted(event.target.value)}
                   />

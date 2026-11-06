@@ -2,15 +2,25 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Check, MapPin, Phone, Store, X } from "lucide-react";
+import { Check, ChefHat, MapPin, MessageCircle, Minus, Pencil, Phone, Plus, Store, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { cancelOrder, dispatchOrder } from "@/lib/actions/pedidos";
-import { formatDateTime, formatMoney } from "@/lib/format";
-import type { Order, OrderItem } from "@/lib/supabase/types";
+import {
+  addDeliveryItem,
+  cancelOrder,
+  changeDeliveryItemQuantity,
+  dispatchOrder,
+  sendOrderToKitchen,
+  updateDeliveryInfo,
+  updateDeliveryItemNotes,
+} from "@/lib/actions/pedidos";
+import { formatDateTime, formatMoney, whatsappLink } from "@/lib/format";
+import { unavailableProductIds } from "@/lib/combos";
+import type { MenuCategory, MenuComboItem, MenuProduct, Order, OrderItem } from "@/lib/supabase/types";
 
 const STATUS_BADGE: Record<string, { label: string; variant: "default" | "success" | "danger" | "muted" }> = {
   pendiente: { label: "Pendiente", variant: "default" },
@@ -18,60 +28,97 @@ const STATUS_BADGE: Record<string, { label: string; variant: "default" | "succes
   cancelado: { label: "Cancelado", variant: "danger" },
 };
 
+export interface OrderCardMenu {
+  categories: MenuCategory[];
+  products: MenuProduct[];
+  comboItems: MenuComboItem[];
+}
+
 export function OrderCard({
   order,
   items,
   currency,
+  kitchenEnabled = false,
+  menu,
 }: {
   order: Order;
   items: OrderItem[];
   currency: string;
+  kitchenEnabled?: boolean;
+  menu?: OrderCardMenu;
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [confirmCancel, setConfirmCancel] = React.useState(false);
+  const [editing, setEditing] = React.useState(false);
   const badge = STATUS_BADGE[order.status] ?? { label: order.status, variant: "muted" as const };
   const pending = order.status === "pendiente";
 
-  async function handleDispatch() {
+  const unsent = items.filter((i) => !i.sent_to_kitchen_at).length;
+  const firstSend = !items.some((i) => i.sent_to_kitchen_at);
+  const whatsapp = whatsappLink(
+    order.customer_phone,
+    `Hola ${order.customer_name ?? ""}, recibimos tu pedido. Antes de enviarlo a preparar, ¿quieres hacer algún cambio?`
+  );
+
+  async function run(action: () => Promise<{ error?: string } | void>) {
     setBusy(true);
     setError(null);
-    const result = await dispatchOrder(order.id, order.order_number);
+    const result = await action();
     setBusy(false);
-    if (result?.error) return setError(result.error);
+    if (result?.error) {
+      setError(result.error);
+      return false;
+    }
     router.refresh();
-  }
-
-  async function handleCancel() {
-    setBusy(true);
-    const result = await cancelOrder(order.id, order.order_number);
-    setBusy(false);
-    setConfirmCancel(false);
-    if (result?.error) return setError(result.error);
-    router.refresh();
+    return true;
   }
 
   return (
     <Card className={pending ? "border-brand" : undefined}>
       <CardContent className="flex flex-col gap-3 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <p className="text-lg font-semibold text-brand-ink">Pedido #{order.order_number}</p>
             <Badge variant={badge.variant}>{badge.label}</Badge>
             <Badge variant="outline">{order.fulfillment === "recoger" ? "Recoger" : "Domicilio"}</Badge>
+            {kitchenEnabled && pending && (
+              <Badge variant={order.kitchen_done_at ? "success" : firstSend ? "muted" : "default"}>
+                {order.kitchen_done_at
+                  ? "Listo en cocina"
+                  : firstSend
+                    ? "Sin enviar a cocina"
+                    : unsent > 0
+                      ? "En cocina · cambios sin enviar"
+                      : "En cocina"}
+              </Badge>
+            )}
           </div>
           <p className="text-sm text-brand-muted">{formatDateTime(order.created_at)}</p>
         </div>
 
         <div className="grid gap-1 text-sm text-brand-ink">
           <p className="font-medium">{order.customer_name}</p>
-          {order.customer_phone && (
-            <p className="flex items-center gap-1.5 text-brand-muted">
-              <Phone className="h-3.5 w-3.5" />
-              {order.customer_phone}
-            </p>
-          )}
+          {order.customer_phone &&
+            (whatsapp ? (
+              <a
+                href={whatsapp}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex w-fit items-center gap-1.5 font-medium text-brand-success hover:underline"
+                title="Escribirle por WhatsApp"
+              >
+                <MessageCircle className="h-3.5 w-3.5" />
+                {order.customer_phone}
+                <span className="text-xs font-normal text-brand-muted">· abrir WhatsApp</span>
+              </a>
+            ) : (
+              <p className="flex items-center gap-1.5 text-brand-muted">
+                <Phone className="h-3.5 w-3.5" />
+                {order.customer_phone}
+              </p>
+            ))}
           {order.fulfillment === "recoger" ? (
             <p className="flex items-center gap-1.5 font-medium text-brand-dark">
               <Store className="h-3.5 w-3.5" />
@@ -86,27 +133,50 @@ export function OrderCard({
         </div>
 
         <ul className="flex flex-col gap-1 rounded-[var(--radius-brand-sm)] bg-black/[0.03] p-3 text-sm">
-          {items.map((item) => (
-            <li key={item.id}>
-              <div className="flex justify-between gap-2">
-                <span>
-                  {item.quantity} × {item.product_name}
-                </span>
-                <span className="text-brand-muted">
-                  {formatMoney(Number(item.unit_price) * item.quantity, currency)}
-                </span>
-              </div>
-              {item.combo_snapshot && (
-                <p className="text-xs text-brand-muted">
-                  Incluye: {item.combo_snapshot.map((c) => `${c.quantity * item.quantity} ${c.name}`).join(", ")}
-                </p>
-              )}
-              {item.notes && <p className="text-xs font-medium text-brand-danger">📝 {item.notes}</p>}
-            </li>
-          ))}
+          {items.map((item) =>
+            editing && pending ? (
+              <EditableLine
+                key={item.id}
+                item={item}
+                currency={currency}
+                disabled={busy}
+                kitchenEnabled={kitchenEnabled}
+                onQuantity={(q) => run(() => changeDeliveryItemQuantity(order.id, item.id, q))}
+                onNotes={(notes) => run(() => updateDeliveryItemNotes(item.id, notes))}
+              />
+            ) : (
+              <li key={item.id}>
+                <div className="flex justify-between gap-2">
+                  <span>
+                    {item.quantity} × {item.product_name}
+                  </span>
+                  <span className="text-brand-muted">
+                    {formatMoney(Number(item.unit_price) * item.quantity, currency)}
+                  </span>
+                </div>
+                {item.combo_snapshot && (
+                  <p className="text-xs text-brand-muted">
+                    Incluye: {item.combo_snapshot.map((c) => `${c.quantity * item.quantity} ${c.name}`).join(", ")}
+                  </p>
+                )}
+                {item.notes && <p className="text-xs font-medium text-brand-danger">📝 {item.notes}</p>}
+              </li>
+            )
+          )}
         </ul>
 
-        {order.notes && <p className="text-sm text-brand-muted">Observaciones: {order.notes}</p>}
+        {editing && pending && menu && (
+          <EditPanel
+            order={order}
+            menu={menu}
+            busy={busy}
+            currency={currency}
+            onAdd={(productId) => run(() => addDeliveryItem(order.id, productId, ""))}
+            onSaveInfo={(info) => run(() => updateDeliveryInfo(order.id, order.order_number, info))}
+          />
+        )}
+
+        {order.notes && !editing && <p className="text-sm text-brand-muted">Observaciones: {order.notes}</p>}
 
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="text-sm text-brand-muted">
@@ -122,12 +192,35 @@ export function OrderCard({
           </div>
 
           {pending && (
-            <div className="flex gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
               <Button variant="outline" disabled={busy} onClick={() => setConfirmCancel(true)}>
                 <X className="h-4 w-4" />
                 Cancelar
               </Button>
-              <Button disabled={busy} onClick={handleDispatch}>
+              {menu && (
+                <Button variant={editing ? "dark" : "outline"} disabled={busy} onClick={() => setEditing((v) => !v)}>
+                  <Pencil className="h-4 w-4" />
+                  {editing ? "Terminar edición" : "Editar pedido"}
+                </Button>
+              )}
+              {kitchenEnabled && (
+                <Button
+                  variant={unsent > 0 ? "default" : "outline"}
+                  disabled={busy || unsent === 0}
+                  onClick={() => run(() => sendOrderToKitchen(order.id, order.order_number))}
+                >
+                  <ChefHat className="h-4 w-4" />
+                  {unsent === 0
+                    ? "Enviado a cocina"
+                    : firstSend
+                      ? "Enviar a cocina"
+                      : `Enviar cambios a cocina (${unsent})`}
+                </Button>
+              )}
+              <Button
+                disabled={busy}
+                onClick={() => run(() => dispatchOrder(order.id, order.order_number))}
+              >
                 <Check className="h-4 w-4" />
                 Marcar despachado
               </Button>
@@ -145,8 +238,185 @@ export function OrderCard({
         description={`¿Cancelar el pedido #${order.order_number}? No contará en las ventas.`}
         confirmLabel="Sí, cancelar"
         isLoading={busy}
-        onConfirm={handleCancel}
+        onConfirm={async () => {
+          await run(() => cancelOrder(order.id, order.order_number));
+          setConfirmCancel(false);
+        }}
       />
     </Card>
+  );
+}
+
+function EditableLine({
+  item,
+  currency,
+  disabled,
+  kitchenEnabled,
+  onQuantity,
+  onNotes,
+}: {
+  item: OrderItem;
+  currency: string;
+  disabled: boolean;
+  kitchenEnabled: boolean;
+  onQuantity: (quantity: number) => void;
+  onNotes: (notes: string) => void;
+}) {
+  const [notes, setNotes] = React.useState(item.notes ?? "");
+
+  return (
+    <li className="flex flex-col gap-1.5 border-b border-brand-border py-2 last:border-0">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="font-medium text-brand-ink">
+            {item.product_name}{" "}
+            {kitchenEnabled && !item.sent_to_kitchen_at && <Badge variant="muted">Sin enviar</Badge>}
+          </p>
+          <p className="text-xs text-brand-muted">{formatMoney(item.unit_price, currency)} c/u</p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-7 w-7"
+            disabled={disabled}
+            onClick={() => onQuantity(item.quantity - 1)}
+            aria-label="Quitar uno"
+          >
+            <Minus className="h-3.5 w-3.5" />
+          </Button>
+          <span className="w-6 text-center">{item.quantity}</span>
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-7 w-7"
+            disabled={disabled}
+            onClick={() => onQuantity(item.quantity + 1)}
+            aria-label="Agregar uno"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </div>
+      <input
+        value={notes}
+        onChange={(event) => setNotes(event.target.value)}
+        onBlur={() => notes.trim() !== (item.notes ?? "") && onNotes(notes)}
+        maxLength={200}
+        placeholder="Comentario (ej: sin cebolla)"
+        className="h-8 rounded-[var(--radius-brand-sm)] border border-brand-border px-2 text-xs"
+      />
+    </li>
+  );
+}
+
+function EditPanel({
+  order,
+  menu,
+  busy,
+  currency,
+  onAdd,
+  onSaveInfo,
+}: {
+  order: Order;
+  menu: OrderCardMenu;
+  busy: boolean;
+  currency: string;
+  onAdd: (productId: string) => void;
+  onSaveInfo: (info: {
+    name: string;
+    phone: string;
+    address: string;
+    notes: string;
+    payment: "efectivo" | "transferencia";
+  }) => void;
+}) {
+  const [productId, setProductId] = React.useState("");
+  const [name, setName] = React.useState(order.customer_name ?? "");
+  const [phone, setPhone] = React.useState(order.customer_phone ?? "");
+  const [address, setAddress] = React.useState(order.address ?? "");
+  const [notes, setNotes] = React.useState(order.notes ?? "");
+  const [payment, setPayment] = React.useState<"efectivo" | "transferencia">(order.payment_method ?? "efectivo");
+  const blocked = unavailableProductIds(menu.products, menu.comboItems);
+  const options = menu.products.filter((p) => !blocked.has(p.id));
+
+  return (
+    <div className="flex flex-col gap-3 rounded-[var(--radius-brand-sm)] border border-dashed border-brand-border p-3">
+      <p className="text-sm font-semibold text-brand-ink">Editar pedido</p>
+
+      <div className="flex flex-wrap gap-2">
+        <select
+          value={productId}
+          onChange={(event) => setProductId(event.target.value)}
+          className="h-10 min-w-0 flex-1 rounded-[var(--radius-brand-sm)] border border-brand-border bg-white px-2 text-sm"
+          aria-label="Producto a agregar"
+        >
+          <option value="">Agregar un producto…</option>
+          {menu.categories.map((category) => {
+            const inCategory = options.filter((p) => p.category_id === category.id);
+            if (inCategory.length === 0) return null;
+            return (
+              <optgroup key={category.id} label={category.name}>
+                {inCategory.map((product) => (
+                  <option key={product.id} value={product.id}>
+                    {product.name} · {formatMoney(product.price, currency)}
+                  </option>
+                ))}
+              </optgroup>
+            );
+          })}
+        </select>
+        <Button
+          variant="outline"
+          disabled={busy || !productId}
+          onClick={() => {
+            onAdd(productId);
+            setProductId("");
+          }}
+        >
+          <Plus className="h-4 w-4" />
+          Agregar
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <label className="flex flex-col gap-1 text-xs text-brand-muted">
+          Nombre
+          <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={120} />
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-brand-muted">
+          Teléfono
+          <Input value={phone} onChange={(event) => setPhone(event.target.value)} maxLength={30} />
+        </label>
+        {order.fulfillment !== "recoger" && (
+          <label className="flex flex-col gap-1 text-xs text-brand-muted sm:col-span-2">
+            Dirección
+            <Input value={address} onChange={(event) => setAddress(event.target.value)} maxLength={250} />
+          </label>
+        )}
+        <label className="flex flex-col gap-1 text-xs text-brand-muted sm:col-span-2">
+          Observaciones
+          <Input value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={300} />
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-brand-muted">
+          Medio de pago
+          <select
+            value={payment}
+            onChange={(event) => setPayment(event.target.value as "efectivo" | "transferencia")}
+            className="h-10 rounded-[var(--radius-brand-sm)] border border-brand-border bg-white px-2 text-sm text-brand-ink"
+          >
+            <option value="efectivo">Efectivo</option>
+            <option value="transferencia">Transferencia</option>
+          </select>
+        </label>
+      </div>
+      <Button
+        className="w-fit"
+        disabled={busy}
+        onClick={() => onSaveInfo({ name, phone, address, notes, payment })}
+      >
+        Guardar datos del cliente
+      </Button>
+    </div>
   );
 }

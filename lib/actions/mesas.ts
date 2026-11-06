@@ -128,12 +128,52 @@ export async function updateTableItemNotes(
   refresh(tableId);
 }
 
-export async function closeTable(
+/** Lleva a cocina los productos que aún no se han enviado de esta cuenta. */
+export async function sendTableToKitchen(orderId: string, tableId: string): Promise<ActionResult> {
+  await mesaContext();
+  const supabase = await createClient();
+
+  const { error } = await supabase.rpc("send_order_to_kitchen", { p_order_id: orderId });
+  if (error) return { error: friendlyDbError(error, "sendTableToKitchen", "No se pudo enviar a cocina") };
+
+  refresh(tableId);
+  revalidatePath("/dashboard/cocina");
+}
+
+/** El mesero recibió el dinero: la mesa sigue ocupada hasta que caja lo confirme. */
+export async function requestTablePayment(
   orderId: string,
   tableId: string,
   payment: "efectivo" | "transferencia"
 ): Promise<ActionResult> {
   const profile = await mesaContext();
+  const supabase = await createClient();
+
+  const { error } = await supabase.rpc("request_table_payment", { p_order_id: orderId, p_payment: payment });
+  if (error) return { error: friendlyDbError(error, "requestTablePayment", "No se pudo avisar a caja") };
+
+  await logActivity(profile, "Pidió cobro de mesa", payment);
+  refresh(tableId);
+}
+
+export async function cancelTablePaymentRequest(orderId: string, tableId: string): Promise<ActionResult> {
+  await mesaContext();
+  const supabase = await createClient();
+
+  const { error } = await supabase.rpc("cancel_table_payment_request", { p_order_id: orderId });
+  if (error) return { error: friendlyDbError(error, "cancelTablePaymentRequest", "No se pudo retirar el aviso") };
+
+  refresh(tableId);
+}
+
+/** Solo caja o administrador confirman el dinero y dejan la mesa libre. */
+export async function closeTable(
+  orderId: string,
+  tableId: string,
+  payment: "efectivo" | "transferencia"
+): Promise<ActionResult> {
+  const profile = await requireOrgRole("owner", "cajero");
+  await requireModule(profile.organization_id, MODULE_KEYS.MESAS);
   const supabase = await createClient();
 
   const { data: total, error } = await supabase.rpc("close_table_order", {
@@ -142,6 +182,6 @@ export async function closeTable(
   });
   if (error) return { error: friendlyDbError(error, "closeTable", "No se pudo cobrar la cuenta") };
 
-  await logActivity(profile, "Cobró mesa", `${payment} · ${total}`);
+  await logActivity(profile, "Confirmó pago y cerró mesa", `${payment} · ${total}`);
   refresh(tableId);
 }

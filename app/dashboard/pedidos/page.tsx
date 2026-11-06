@@ -1,16 +1,16 @@
 import { requireOrgRole } from "@/lib/auth";
-import { requireModule, MODULE_KEYS } from "@/lib/modules";
+import { isModuleEnabled, requireModule, MODULE_KEYS } from "@/lib/modules";
 import { createClient } from "@/lib/supabase/server";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
 import { OrderCard } from "@/components/pedidos/order-card";
-import type { Order, OrderItem } from "@/lib/supabase/types";
+import type { MenuCategory, MenuComboItem, MenuProduct, Order, OrderItem } from "@/lib/supabase/types";
 
 export default async function PedidosPage() {
   const profile = await requireOrgRole("owner", "cajero");
   await requireModule(profile.organization_id, MODULE_KEYS.MENU_ONLINE);
   const supabase = await createClient();
 
-  const [{ data: pending }, { data: recent }, { data: org }] = await Promise.all([
+  const [{ data: pending }, { data: recent }, { data: org }, kitchenEnabled, { data: categories }, { data: products }, { data: comboItems }] = await Promise.all([
     supabase
       .from("orders")
       .select("*")
@@ -27,7 +27,28 @@ export default async function PedidosPage() {
       .order("completed_at", { ascending: false })
       .limit(30),
     supabase.from("organizations").select("currency").eq("id", profile.organization_id).single(),
+    isModuleEnabled(profile.organization_id, MODULE_KEYS.COCINA),
+    supabase
+      .from("menu_categories")
+      .select("*")
+      .eq("organization_id", profile.organization_id)
+      .order("sort_order")
+      .order("created_at"),
+    supabase
+      .from("menu_products")
+      .select("*")
+      .eq("organization_id", profile.organization_id)
+      .eq("is_active", true)
+      .order("sort_order")
+      .order("created_at"),
+    supabase.from("menu_combo_items").select("*").eq("organization_id", profile.organization_id),
   ]);
+
+  const menu = {
+    categories: (categories as MenuCategory[]) ?? [],
+    products: (products as MenuProduct[]) ?? [],
+    comboItems: (comboItems as MenuComboItem[]) ?? [],
+  };
 
   const pendingOrders = (pending as Order[]) ?? [];
   const recentOrders = (recent as Order[]) ?? [];
@@ -56,7 +77,7 @@ export default async function PedidosPage() {
       <div>
         <h1 className="text-2xl font-semibold text-brand-ink">Pedidos a domicilio</h1>
         <p className="text-sm text-brand-muted">
-          Los pedidos llegan aquí al instante. Cuando salgan, márcalos como despachados.
+          Los pedidos llegan aquí al instante. Escríbele al cliente por WhatsApp si hace falta, edita el pedido, envíalo a cocina y, cuando salga, márcalo como despachado.
         </p>
       </div>
 
@@ -74,6 +95,8 @@ export default async function PedidosPage() {
                 order={order}
                 items={itemsByOrder.get(order.id) ?? []}
                 currency={currency}
+                kitchenEnabled={kitchenEnabled}
+                menu={menu}
               />
             ))}
           </div>

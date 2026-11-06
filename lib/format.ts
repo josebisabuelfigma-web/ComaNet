@@ -49,3 +49,14 @@ export function dayRangeToTimestamps(fromDay: string, toDay: string) {
 export function onlyDigits(value: string) {
   return value.replace(/\D/g, "");
 }
+
+/**
+ * Enlace de WhatsApp para un teléfono colombiano (acepta 3001234567 o con 57).
+ * Devuelve null si el número no parece válido.
+ */
+export function whatsappLink(phone: string | null | undefined, message: string) {
+  const digits = onlyDigits(phone ?? "");
+  const full = digits.length === 10 ? `57${digits}` : digits;
+  if (full.length < 11 || full.length > 15) return null;
+  return `https://wa.me/${full}?text=${encodeURIComponent(message)}`;
+}

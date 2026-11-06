@@ -10,6 +10,7 @@ export const MODULE_KEYS = {
   CAJA: "caja",
   REPORTES: "reportes",
   COCINA: "cocina",
+  FINANZAS: "finanzas",
 } as const;
 
 export type ModuleKey = (typeof MODULE_KEYS)[keyof typeof MODULE_KEYS];

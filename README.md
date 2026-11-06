@@ -42,6 +42,23 @@ Los usuarios y contraseñas viven en la base de datos (Supabase Auth +
 `profiles`) y se crean por código desde el panel; no hay credenciales en
 variables de entorno (solo las llaves de Supabase).
 
+**Cocina con envío y avisos:** los pedidos (domicilio y mesa) llegan a cocina solo
+cuando caja/administrador/mesero les da "Enviar a cocina". Si después se agrega,
+quita o cambia algo, cocina recibe un aviso ("tuvo cambios") con sonido hasta que
+da "Entendido". Cocina marca cada producto como despachado y el sistema registra
+cuánto tardó cada pedido (y el promedio del día).
+
+**Cobro de mesas en dos pasos:** el mesero avisa "ya recibí el pago" y la mesa queda
+"Por cobrar"; solo caja o el administrador confirman el dinero y la liberan.
+
+**Domicilios editables:** el administrador/cajero puede cambiar productos,
+cantidades, comentarios y datos del cliente mientras el pedido esté pendiente (el
+total se recalcula). El teléfono abre WhatsApp con un mensaje listo.
+
+**Ingresos, egresos y facturas** (módulo `finanzas`, independiente de caja): registra
+movimientos con factura opcional (imagen o PDF) y consúltalos por fecha en
+*Ingresos y egresos* y *Facturas*.
+
 ## 1. Crear el proyecto de Supabase
 
 1. Crea un proyecto **nuevo** en [supabase.com](https://supabase.com) (no
@@ -52,7 +69,9 @@ variables de entorno (solo las llaves de Supabase).
 4. En el **SQL Editor**, ejecuta en orden los archivos de `sql/`:
    `001_schema.sql`, `002_rls_policies.sql`, `003_functions.sql`,
    `004_storage_realtime.sql`, `005_seed_modules.sql`,
-   `006_combos_cocina_recoger.sql`.
+   `006_combos_cocina_recoger.sql`, `007_combo_disponibilidad.sql`, `008_realtime_carta.sql`,
+   `009_horario.sql`, `010_cocina_envio_cobro_edicion.sql` y `011_finanzas_facturas.sql`.
+   (Ejecuta las migraciones nuevas ANTES de publicar el código que las usa.)
 
 ## 2. Crear el primer super administrador
 

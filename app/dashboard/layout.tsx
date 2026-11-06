@@ -89,6 +89,20 @@ export default async function DashboardLayout({
         locked: !isModuleEnabled(MODULE_KEYS.CAJA),
       });
     }
+    if (isOwner || isCajero) {
+      items.push({
+        href: "/dashboard/finanzas",
+        label: "Ingresos y egresos",
+        icon: "finanzas",
+        locked: !isModuleEnabled(MODULE_KEYS.FINANZAS),
+      });
+      items.push({
+        href: "/dashboard/facturas",
+        label: "Facturas",
+        icon: "facturas",
+        locked: !isModuleEnabled(MODULE_KEYS.FINANZAS),
+      });
+    }
     if (isOwner) {
       items.push({
         href: "/dashboard/reportes",

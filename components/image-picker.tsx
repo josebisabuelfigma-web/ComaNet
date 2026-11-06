@@ -19,11 +19,11 @@ const MAX_SIDE = 1280;
 const SKIP_BELOW_BYTES = 600 * 1024;
 
 /** Reduce la imagen (lado mayor 1280 px, JPEG) si pesa mucho; si falla, usa la original. */
-async function shrinkImage(file: File): Promise<File> {
+export async function shrinkImage(file: File, maxSide = MAX_SIDE): Promise<File> {
   if (file.size <= SKIP_BELOW_BYTES) return file;
   try {
     const bitmap = await createImageBitmap(file);
-    const scale = Math.min(1, MAX_SIDE / Math.max(bitmap.width, bitmap.height));
+    const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
     const canvas = document.createElement("canvas");
     canvas.width = Math.round(bitmap.width * scale);
     canvas.height = Math.round(bitmap.height * scale);

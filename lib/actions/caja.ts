@@ -47,13 +47,13 @@ export async function addCashMovement(
   if (type !== "ingreso" && type !== "egreso") return { error: "Tipo inválido" };
 
   const supabase = await createClient();
-  const { error } = await supabase.from("cash_movements").insert({
-    organization_id: profile.organization_id,
-    session_id: sessionId,
-    type,
-    amount: parsedAmount.data,
-    description: text.slice(0, 200),
-    created_by: profile.id,
+  const { error } = await supabase.rpc("register_cash_movement", {
+    p_type: type,
+    p_amount: parsedAmount.data,
+    p_description: text,
+    p_payment: "efectivo",
+    p_invoice_path: null,
+    p_invoice_name: null,
   });
   if (error) return { error: friendlyDbError(error, "addCashMovement", "No se pudo registrar el movimiento") };
 

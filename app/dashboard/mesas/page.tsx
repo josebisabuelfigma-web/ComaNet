@@ -75,13 +75,20 @@ export default async function MesasPage() {
             return (
               <Link key={table.id} href={`/dashboard/mesas/${table.id}`}>
                 <Card
-                  className={`h-full transition-shadow hover:shadow-md ${order ? "border-brand bg-brand/10" : ""}`}
+                  className={`h-full transition-shadow hover:shadow-md ${order?.payment_requested_at ? "border-brand-danger bg-brand-danger/10" : order ? "border-brand bg-brand/10" : ""}`}
                 >
                   <CardContent className="flex flex-col gap-2 p-4">
                     <div className="flex items-center justify-between gap-2">
                       <p className="font-semibold text-brand-ink">{table.name}</p>
-                      <Badge variant={order ? "default" : "success"}>{order ? "Ocupada" : "Libre"}</Badge>
+                      <Badge variant={order?.payment_requested_at ? "danger" : order ? "default" : "success"}>
+                        {order?.payment_requested_at ? "Por cobrar" : order ? "Ocupada" : "Libre"}
+                      </Badge>
                     </div>
+                    {order?.payment_requested_at && (
+                      <p className="text-xs font-medium text-brand-danger">
+                        Pago recibido por el mesero · falta confirmar en caja
+                      </p>
+                    )}
                     {order ? (
                       <p className="text-sm text-brand-muted">
                         {summary?.count ?? 0} productos ·{" "}

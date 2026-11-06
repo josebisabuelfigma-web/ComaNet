@@ -328,7 +328,7 @@ export function PublicMenu({
       </header>
       {visibleCategories.length > 0 && (
         <div className="sticky top-0 z-20 bg-brand-ink text-white shadow-md">
-          <nav className="mx-auto flex max-w-3xl gap-2 overflow-x-auto px-4 py-3">
+          <nav className="mx-auto flex max-w-3xl gap-2 overflow-x-auto px-4 py-3 [scrollbar-width:none] md:flex-wrap md:overflow-visible [&::-webkit-scrollbar]:hidden">
             <button
               type="button"
               onClick={() => openCategory(null)}

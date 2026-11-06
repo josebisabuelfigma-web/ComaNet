@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  ArrowLeftRight,
   Armchair,
   BarChart3,
   Bike,
@@ -12,6 +13,7 @@ import {
   LayoutGrid,
   LogOut,
   Menu,
+  Receipt,
   Settings,
   ShieldCheck,
   User,
@@ -30,6 +32,8 @@ export interface SidebarNavItem {
     | "pedidos"
     | "mesas"
     | "caja"
+    | "finanzas"
+    | "facturas"
     | "cocina"
     | "reportes"
     | "ajustes"
@@ -46,6 +50,8 @@ const ICONS = {
   pedidos: Bike,
   mesas: Armchair,
   caja: Wallet,
+  finanzas: ArrowLeftRight,
+  facturas: Receipt,
   cocina: ChefHat,
   reportes: BarChart3,
   ajustes: Settings,

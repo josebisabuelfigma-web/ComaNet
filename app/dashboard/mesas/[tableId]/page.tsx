@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { requireOrgRole } from "@/lib/auth";
-import { requireModule, MODULE_KEYS } from "@/lib/modules";
+import { isModuleEnabled, requireModule, MODULE_KEYS } from "@/lib/modules";
 import { createClient } from "@/lib/supabase/server";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
 import { TableOrder } from "@/components/mesas/table-order";
@@ -23,6 +23,7 @@ export default async function MesaDetallePage({
   const profile = await requireOrgRole("owner", "cajero", "mesero");
   await requireModule(profile.organization_id, MODULE_KEYS.MESAS);
   const supabase = await createClient();
+  const kitchenEnabled = await isModuleEnabled(profile.organization_id, MODULE_KEYS.COCINA);
 
   const [{ data: table }, { data: order }, { data: categories }, { data: products }, { data: comboItems }, { data: org }] =
     await Promise.all([
@@ -76,6 +77,8 @@ export default async function MesaDetallePage({
         comboItems={(comboItems as MenuComboItem[]) ?? []}
         currency={org?.currency ?? "COP"}
         canCancel={profile.role !== "mesero"}
+        canClose={profile.role !== "mesero"}
+        kitchenEnabled={kitchenEnabled}
       />
     </>
   );
