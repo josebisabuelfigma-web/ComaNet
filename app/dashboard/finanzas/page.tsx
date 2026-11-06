@@ -2,15 +2,16 @@ import { requireOrgRole } from "@/lib/auth";
 import { requireModule, MODULE_KEYS } from "@/lib/modules";
 import { createClient } from "@/lib/supabase/server";
 import {
-  dayRangeToTimestamps,
+  cleanSearch,
+  dateTimeRange,
   formatDateTime,
   formatMoney,
-  normalizeDay,
+  normalizeDateTime,
   todayInColombia,
 } from "@/lib/format";
+import { RangeFilter } from "@/components/range-filter";
 import { signInvoiceUrls } from "@/lib/invoices";
 import { MovementForm } from "@/components/finanzas/movement-form";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { CashMovement } from "@/lib/supabase/types";
@@ -30,28 +31,30 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: "su
 export default async function FinanzasPage({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string; to?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; q?: string }>;
 }) {
   const profile = await requireOrgRole("owner", "cajero");
   await requireModule(profile.organization_id, MODULE_KEYS.FINANZAS);
 
   const params = await searchParams;
   const today = todayInColombia();
-  const from = normalizeDay(params.from, `${today.slice(0, 8)}01`);
-  const to = normalizeDay(params.to, today);
-  const range = from <= to ? { from, to } : { from: to, to: from };
-  const { from: fromTs, to: toTs } = dayRangeToTimestamps(range.from, range.to);
+  const range = dateTimeRange(
+    normalizeDateTime(params.from, `${today.slice(0, 8)}01T00:00`),
+    normalizeDateTime(params.to, `${today}T23:59`, true)
+  );
+  const search = cleanSearch(params.q);
 
   const supabase = await createClient();
+  let movesQuery = supabase
+    .from("cash_movements")
+    .select("*")
+    .eq("organization_id", profile.organization_id)
+    .gte("created_at", range.from)
+    .lt("created_at", range.to);
+  if (search) movesQuery = movesQuery.or(`description.ilike.%${search}%,counterparty.ilike.%${search}%`);
+
   const [{ data: moves }, { data: org }] = await Promise.all([
-    supabase
-      .from("cash_movements")
-      .select("*")
-      .eq("organization_id", profile.organization_id)
-      .gte("created_at", fromTs)
-      .lt("created_at", toTs)
-      .order("created_at", { ascending: false })
-      .limit(500),
+    movesQuery.order("created_at", { ascending: false }).limit(500),
     supabase.from("organizations").select("currency").eq("id", profile.organization_id).single(),
   ]);
 
@@ -78,27 +81,12 @@ export default async function FinanzasPage({
             Registra lo que entra y sale del negocio. Adjunta la factura y consúltala después en Facturas.
           </p>
         </div>
-        <form className="flex flex-wrap items-end gap-2">
-          <label className="flex flex-col gap-1 text-xs text-brand-muted">
-            Desde
-            <input
-              type="date"
-              name="from"
-              defaultValue={range.from}
-              className="h-10 rounded-[var(--radius-brand-sm)] border border-brand-border bg-white px-3 text-sm text-brand-ink"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-brand-muted">
-            Hasta
-            <input
-              type="date"
-              name="to"
-              defaultValue={range.to}
-              className="h-10 rounded-[var(--radius-brand-sm)] border border-brand-border bg-white px-3 text-sm text-brand-ink"
-            />
-          </label>
-          <Button type="submit">Ver</Button>
-        </form>
+        <RangeFilter
+          fromLocal={range.fromLocal}
+          toLocal={range.toLocal}
+          query={search}
+          searchLabel="Buscar persona o proveedor"
+        />
       </div>
 
       <Card>
@@ -119,20 +107,21 @@ export default async function FinanzasPage({
 
       <Card>
         <CardHeader>
-          <CardTitle>Movimientos del periodo</CardTitle>
+          <CardTitle>{search ? `Resultados para "${search}"` : "Movimientos del periodo"}</CardTitle>
           <CardDescription>
             {list.length === 500 ? "Se muestran los 500 más recientes." : `${list.length} movimientos.`}
           </CardDescription>
         </CardHeader>
         <CardContent className="overflow-x-auto">
           {list.length === 0 ? (
-            <p className="py-4 text-sm text-brand-muted">No hay movimientos en estas fechas.</p>
+            <p className="py-4 text-sm text-brand-muted">No hay movimientos con estos filtros.</p>
           ) : (
             <table className="w-full min-w-[640px] text-sm">
               <thead>
                 <tr className="border-b border-brand-border text-left text-brand-muted">
                   <th className="p-2 font-medium">Fecha y hora</th>
                   <th className="p-2 font-medium">Descripción</th>
+                  <th className="p-2 font-medium">Persona / proveedor</th>
                   <th className="p-2 font-medium">Medio</th>
                   <th className="p-2 font-medium">Factura</th>
                   <th className="p-2 text-right font-medium">Valor</th>
@@ -145,6 +134,7 @@ export default async function FinanzasPage({
                     <tr key={move.id} className="border-b border-brand-border last:border-0">
                       <td className="whitespace-nowrap p-2">{formatDateTime(move.created_at)}</td>
                       <td className="p-2">{move.description}</td>
+                      <td className="p-2">{move.counterparty ?? <span className="text-brand-muted">—</span>}</td>
                       <td className="p-2">
                         <Badge variant="muted" className="capitalize">
                           {move.payment_method}

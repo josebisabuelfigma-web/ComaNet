@@ -549,6 +549,14 @@ await as(cajeroA, async (s) => {
   const [info] = await s.q("select customer_name, customer_phone, payment_method from orders where id=$1", [pick.order_id]);
   check(info.customer_name === "Marta R" && info.payment_method === "transferencia", "se editan los datos del domicilio");
 
+  // Edición completa: dirección vacía permitida, cambio de tipo de entrega y de valores
+  await s.q("select update_delivery_order_info($1,'Marta R','3001112222','','','efectivo','domicilio',4000,1500)", [pick.order_id]);
+  const [full] = await s.q("select fulfillment, address, delivery_fee, disposables_fee, subtotal, total from orders where id=$1", [pick.order_id]);
+  check(full.fulfillment === "domicilio" && full.address === null && Number(full.delivery_fee) === 4000 && Number(full.total) === Number(full.subtotal) + 5500, "se edita tipo de entrega, valores y la dirección puede quedar vacía", JSON.stringify(full));
+  await s.q("select update_delivery_order_info($1,'Marta R','3001112222','Calle 5 #4-3','','efectivo','recoger',9999,1000)", [pick.order_id]);
+  const [back] = await s.q("select fulfillment, delivery_fee, total, subtotal from orders where id=$1", [pick.order_id]);
+  check(back.fulfillment === "recoger" && Number(back.delivery_fee) === 0 && Number(back.total) === Number(back.subtotal) + 1000, "recoger deja el domicilio en 0 y recalcula el total", JSON.stringify(back));
+  check((await s.error("select update_delivery_order_info($1,'Marta R','1','','','efectivo','volando',0,0)", [pick.order_id])) !== null, "tipo de entrega inválido se rechaza");
   await switchTo(meseroA);
   check(await s.blocked("update order_items set quantity=9 where order_id=$1", [pick.order_id]), "mesero no edita items de un domicilio");
   check((await s.error("select update_delivery_order_info($1,'X Y','1','','','efectivo')", [pick.order_id])) !== null, "mesero no edita datos de un domicilio");
@@ -584,6 +592,9 @@ await as(cajeroA, async (s) => {
   check((await s.error("select register_cash_movement('egreso', 0, 'x', 'efectivo', null, null)", [])) !== null, "valor mayor a 0");
   const [libre] = await s.q("select register_cash_movement('egreso', 1550.5, 'compra', 'efectivo', null, null) as id");
   check(libre.id !== null, "cualquier valor (sin restricción de múltiplos)");
+  const [conT] = await s.q("select register_cash_movement('egreso', 85000, 'pago recibo de energía', 'transferencia', null, null, 'Electrificadora') as id");
+  const found = await s.q("select 1 from cash_movements where id=$1 and counterparty ilike $2", [conT.id, '%electrif%']);
+  check(found.length === 1, "se guarda y se busca la persona o proveedor");
 });
 await as(meseroA, async (s) => {
   check((await s.error("select register_cash_movement('egreso', 5000, 'x', 'efectivo', null, null)", [])) !== null, "mesero no registra movimientos");

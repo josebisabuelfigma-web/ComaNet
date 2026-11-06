@@ -60,3 +60,32 @@ export function whatsappLink(phone: string | null | undefined, message: string) 
   if (full.length < 11 || full.length > 15) return null;
   return `https://wa.me/${full}?text=${encodeURIComponent(message)}`;
 }
+
+const ISO_LOCAL = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+
+/**
+ * Valor de un <input type="datetime-local"> (YYYY-MM-DDTHH:mm, hora de Colombia).
+ * Acepta también solo el día (enlaces viejos): el inicio es 00:00 y el fin 23:59.
+ */
+export function normalizeDateTime(value: string | undefined | null, fallback: string, endOfDay = false) {
+  if (value && ISO_LOCAL.test(value)) return value;
+  if (value && ISO_DAY.test(value)) return `${value}T${endOfDay ? "23:59" : "00:00"}`;
+  return fallback;
+}
+
+/**
+ * Rango entre dos fecha-hora de Colombia (UTC-5). El minuto final se incluye
+ * completo. Si vienen al revés se invierten. Devuelve también los valores
+ * ordenados para mostrarlos en el formulario.
+ */
+export function dateTimeRange(fromLocal: string, toLocal: string) {
+  const [a, b] = fromLocal <= toLocal ? [fromLocal, toLocal] : [toLocal, fromLocal];
+  const from = new Date(`${a}:00-05:00`);
+  const to = new Date(new Date(`${b}:00-05:00`).getTime() + 60_000);
+  return { from: from.toISOString(), to: to.toISOString(), fromLocal: a, toLocal: b };
+}
+
+/** Texto seguro para usar dentro de un filtro .or(...ilike...) de PostgREST. */
+export function cleanSearch(value: string | undefined | null) {
+  return (value ?? "").replace(/[,()%*\\"']/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
+}

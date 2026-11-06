@@ -10,7 +10,7 @@ export default async function PedidosPage() {
   await requireModule(profile.organization_id, MODULE_KEYS.MENU_ONLINE);
   const supabase = await createClient();
 
-  const [{ data: pending }, { data: recent }, { data: org }, kitchenEnabled, { data: categories }, { data: products }, { data: comboItems }] = await Promise.all([
+  const [{ data: pending }, { data: recent }, { data: org }, kitchenEnabled, { data: categories }, { data: products }, { data: comboItems }, { data: settings }] = await Promise.all([
     supabase
       .from("orders")
       .select("*")
@@ -42,12 +42,18 @@ export default async function PedidosPage() {
       .order("sort_order")
       .order("created_at"),
     supabase.from("menu_combo_items").select("*").eq("organization_id", profile.organization_id),
+    supabase
+      .from("restaurant_settings")
+      .select("delivery_fee")
+      .eq("organization_id", profile.organization_id)
+      .single(),
   ]);
 
   const menu = {
     categories: (categories as MenuCategory[]) ?? [],
     products: (products as MenuProduct[]) ?? [],
     comboItems: (comboItems as MenuComboItem[]) ?? [],
+    defaultDeliveryFee: Number(settings?.delivery_fee ?? 0),
   };
 
   const pendingOrders = (pending as Order[]) ?? [];

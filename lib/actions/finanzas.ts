@@ -27,6 +27,7 @@ export async function registerMovement(formData: FormData): Promise<ActionResult
   const type = String(formData.get("type") ?? "");
   const payment = String(formData.get("payment") ?? "efectivo");
   const description = String(formData.get("description") ?? "").trim();
+  const counterparty = String(formData.get("counterparty") ?? "").trim().slice(0, 120);
   const amount = Number(String(formData.get("amount") ?? "").replace(",", "."));
 
   if (type !== "ingreso" && type !== "egreso") return { error: "Elige si es ingreso o egreso" };
@@ -62,6 +63,7 @@ export async function registerMovement(formData: FormData): Promise<ActionResult
     p_payment: payment,
     p_invoice_path: invoicePath,
     p_invoice_name: invoiceName,
+    p_counterparty: counterparty || null,
   });
   if (error) {
     if (invoicePath) await supabase.storage.from("facturas").remove([invoicePath]);
@@ -71,7 +73,7 @@ export async function registerMovement(formData: FormData): Promise<ActionResult
   await logActivity(
     profile,
     type === "ingreso" ? "Registró ingreso" : "Registró egreso",
-    `${amount} · ${description.slice(0, 80)}${invoicePath ? " · con factura" : ""}`
+    `${amount} · ${counterparty ? counterparty + " · " : ""}${description.slice(0, 80)}${invoicePath ? " · con factura" : ""}`
   );
   revalidatePath("/dashboard/finanzas");
   revalidatePath("/dashboard/facturas");

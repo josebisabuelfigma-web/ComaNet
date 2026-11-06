@@ -3,8 +3,8 @@ import Link from "next/link";
 import { requireOrgRole } from "@/lib/auth";
 import { isModuleEnabled, requireModule, MODULE_KEYS } from "@/lib/modules";
 import { createClient } from "@/lib/supabase/server";
-import { dayRangeToTimestamps, formatDateTime, formatMoney, normalizeDay, todayInColombia } from "@/lib/format";
-import { Button } from "@/components/ui/button";
+import { cleanSearch, dateTimeRange, formatDateTime, formatMoney, normalizeDateTime, todayInColombia } from "@/lib/format";
+import { RangeFilter } from "@/components/range-filter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import type { CashMovement, SalesByProductRow, SalesSummaryRow } from "@/lib/supabase/types";
@@ -24,17 +24,19 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
 export default async function ReportesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string; to?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; q?: string }>;
 }) {
   const profile = await requireOrgRole("owner");
   await requireModule(profile.organization_id, MODULE_KEYS.REPORTES);
 
   const params = await searchParams;
   const today = todayInColombia();
-  const from = normalizeDay(params.from, today);
-  const to = normalizeDay(params.to, today);
-  const range = from <= to ? { from, to } : { from: to, to: from };
-  const { from: fromTs, to: toTs } = dayRangeToTimestamps(range.from, range.to);
+  const range = dateTimeRange(
+    normalizeDateTime(params.from, `${today}T00:00`),
+    normalizeDateTime(params.to, `${today}T23:59`, true)
+  );
+  const { from: fromTs, to: toTs } = range;
+  const search = cleanSearch(params.q);
 
   const supabase = await createClient();
   const [finanzasOn, cajaOn] = await Promise.all([
@@ -48,14 +50,16 @@ export default async function ReportesPage({
     supabase.rpc("report_sales_by_product", { p_from: fromTs, p_to: toTs }),
     supabase.from("organizations").select("currency").eq("id", profile.organization_id).single(),
     showMovements
-      ? supabase
-          .from("cash_movements")
-          .select("*")
-          .eq("organization_id", profile.organization_id)
-          .gte("created_at", fromTs)
-          .lt("created_at", toTs)
-          .order("created_at", { ascending: false })
-          .limit(300)
+      ? (() => {
+          let query = supabase
+            .from("cash_movements")
+            .select("*")
+            .eq("organization_id", profile.organization_id)
+            .gte("created_at", fromTs)
+            .lt("created_at", toTs);
+          if (search) query = query.or(`description.ilike.%${search}%,counterparty.ilike.%${search}%`);
+          return query.order("created_at", { ascending: false }).limit(300);
+        })()
       : Promise.resolve({ data: [] as CashMovement[] }),
   ]);
 
@@ -116,30 +120,15 @@ export default async function ReportesPage({
         <div>
           <h1 className="text-2xl font-semibold text-brand-ink">Reportes de ventas</h1>
           <p className="text-sm text-brand-muted">
-            Solo cuentan los pedidos despachados y las cuentas de mesa cobradas.
+            Solo cuentan los pedidos despachados y las cuentas de mesa cobradas. Puedes filtrar por fecha y hora (útil para turnos que pasan de medianoche).
           </p>
         </div>
-        <form className="flex flex-wrap items-end gap-2">
-          <label className="flex flex-col gap-1 text-xs text-brand-muted">
-            Desde
-            <input
-              type="date"
-              name="from"
-              defaultValue={range.from}
-              className="h-10 rounded-[var(--radius-brand-sm)] border border-brand-border bg-white px-3 text-sm text-brand-ink"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-brand-muted">
-            Hasta
-            <input
-              type="date"
-              name="to"
-              defaultValue={range.to}
-              className="h-10 rounded-[var(--radius-brand-sm)] border border-brand-border bg-white px-3 text-sm text-brand-ink"
-            />
-          </label>
-          <Button type="submit">Ver</Button>
-        </form>
+        <RangeFilter
+          fromLocal={range.fromLocal}
+          toLocal={range.toLocal}
+          query={search}
+          searchLabel={showMovements ? "Buscar en ingresos y egresos" : undefined}
+        />
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -194,6 +183,69 @@ export default async function ReportesPage({
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle>Por medio de pago</CardTitle>
+          <CardDescription>
+            {showMovements
+              ? "Cuánto entró y salió en efectivo y cuánto por transferencia. El neto es ventas + ingresos − egresos."
+              : "Cuánto se vendió en efectivo y cuánto por transferencia."}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="overflow-x-auto">
+          <table className="w-full min-w-[520px] text-sm">
+            <thead>
+              <tr className="border-b border-brand-border text-left text-brand-muted">
+                <th className="p-2 font-medium">Medio de pago</th>
+                <th className="p-2 text-right font-medium">Ventas</th>
+                {showMovements && (
+                  <>
+                    <th className="p-2 text-right font-medium">Ingresos</th>
+                    <th className="p-2 text-right font-medium">Egresos</th>
+                    <th className="p-2 text-right font-medium">Neto</th>
+                  </>
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {(
+                [
+                  { label: "Efectivo", method: "efectivo", sales: cashTotal },
+                  { label: "Transferencia", method: "transferencia", sales: transferTotal },
+                ] as const
+              ).map((row) => {
+                const ing = sumMoves("ingreso", row.method);
+                const egr = sumMoves("egreso", row.method);
+                return (
+                  <tr key={row.method} className="border-b border-brand-border last:border-0">
+                    <td className="p-2 font-medium text-brand-ink">{row.label}</td>
+                    <td className="p-2 text-right">{money(row.sales)}</td>
+                    {showMovements && (
+                      <>
+                        <td className="p-2 text-right text-brand-success">{money(ing)}</td>
+                        <td className="p-2 text-right text-brand-danger">{money(egr)}</td>
+                        <td className="p-2 text-right font-semibold">{money(row.sales + ing - egr)}</td>
+                      </>
+                    )}
+                  </tr>
+                );
+              })}
+              <tr className="font-semibold">
+                <td className="p-2">Total</td>
+                <td className="p-2 text-right">{money(totalSales)}</td>
+                {showMovements && (
+                  <>
+                    <td className="p-2 text-right">{money(ingresos)}</td>
+                    <td className="p-2 text-right">{money(egresos)}</td>
+                    <td className="p-2 text-right">{money(totalSales + ingresos - egresos)}</td>
+                  </>
+                )}
+              </tr>
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
+
       {showMovements && (
         <Card>
           <CardHeader>
@@ -220,6 +272,7 @@ export default async function ReportesPage({
                   <tr className="border-b border-brand-border text-left text-brand-muted">
                     <th className="p-2 font-medium">Fecha y hora</th>
                     <th className="p-2 font-medium">Descripción</th>
+                    <th className="p-2 font-medium">Persona / proveedor</th>
                     <th className="p-2 font-medium">Medio</th>
                     <th className="p-2 text-right font-medium">Valor</th>
                   </tr>
@@ -227,8 +280,8 @@ export default async function ReportesPage({
                 <tbody>
                   {movements.length === 0 && (
                     <tr>
-                      <td colSpan={4} className="p-6 text-center text-brand-muted">
-                        No hay ingresos ni egresos en este rango.
+                      <td colSpan={5} className="p-6 text-center text-brand-muted">
+                        No hay ingresos ni egresos con estos filtros.
                       </td>
                     </tr>
                   )}
@@ -239,6 +292,7 @@ export default async function ReportesPage({
                         {move.description}{" "}
                         {move.invoice_path && <Badge variant="muted">con factura</Badge>}
                       </td>
+                      <td className="p-2">{move.counterparty ?? <span className="text-brand-muted">—</span>}</td>
                       <td className="p-2 capitalize">{move.payment_method}</td>
                       <td
                         className={`whitespace-nowrap p-2 text-right font-medium ${

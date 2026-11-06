@@ -63,13 +63,17 @@ export async function addTableItem(
   const supabase = await createClient();
   const cleanNotes = notes.trim().slice(0, 200);
 
-  // Si ya hay una línea igual (mismo producto y mismas notas) suma la cantidad.
+  // Si ya hay una línea igual (mismo producto y mismas notas) que AÚN NO se envió a
+  // cocina, suma la cantidad. Lo ya enviado no se toca: lo nuevo queda aparte,
+  // "sin enviar", hasta que el mesero pulse "Enviar a cocina".
   const { data: lines } = await supabase
     .from("order_items")
     .select("*")
     .eq("order_id", orderId)
     .eq("product_id", productId);
-  const same = ((lines as OrderItem[]) ?? []).find((l) => (l.notes ?? "") === cleanNotes);
+  const same = ((lines as OrderItem[]) ?? []).find(
+    (l) => (l.notes ?? "") === cleanNotes && !l.sent_to_kitchen_at
+  );
 
   if (same) {
     const { error } = await supabase

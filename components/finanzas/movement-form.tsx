@@ -21,6 +21,7 @@ export function MovementForm() {
   const [payment, setPayment] = React.useState<"efectivo" | "transferencia">("efectivo");
   const [amount, setAmount] = React.useState("");
   const [description, setDescription] = React.useState("");
+  const [counterparty, setCounterparty] = React.useState("");
   const [file, setFile] = React.useState<File | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -50,6 +51,7 @@ export function MovementForm() {
     data.set("payment", payment);
     data.set("amount", amount);
     data.set("description", description);
+    data.set("counterparty", counterparty);
     if (file) data.set("invoice", file);
 
     const result = await registerMovement(data);
@@ -58,6 +60,7 @@ export function MovementForm() {
 
     setAmount("");
     setDescription("");
+    setCounterparty("");
     clearFile();
     setSaved(true);
     router.refresh();
@@ -102,6 +105,18 @@ export function MovementForm() {
           required
         />
       </div>
+      <div className="flex flex-col gap-1.5 sm:col-span-4">
+        <Label htmlFor="mv-counterparty">
+          {type === "egreso" ? "Pagado a (persona o proveedor, opcional)" : "Recibido de (persona o cliente, opcional)"}
+        </Label>
+        <Input
+          id="mv-counterparty"
+          value={counterparty}
+          onChange={(event) => setCounterparty(event.target.value)}
+          maxLength={120}
+          placeholder={type === "egreso" ? "Ej: Electrificadora, Don Pedro" : "Ej: Juan Pérez"}
+        />
+      </div>
       <div className="flex flex-col gap-1.5 sm:col-span-2">
         <Label htmlFor="mv-payment">Medio de pago</Label>
         <select
@@ -114,7 +129,7 @@ export function MovementForm() {
           <option value="transferencia">Transferencia</option>
         </select>
       </div>
-      <div className="flex flex-col gap-1.5 sm:col-span-4">
+      <div className="flex flex-col gap-1.5 sm:col-span-6">
         <Label>Factura o soporte (opcional)</Label>
         <div className="flex flex-wrap items-center gap-2">
           <Button type="button" variant="outline" onClick={() => fileRef.current?.click()}>

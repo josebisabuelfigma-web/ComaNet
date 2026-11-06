@@ -136,8 +136,19 @@ export async function updateDeliveryItemNotes(itemId: string, notes: string): Pr
 export async function updateDeliveryInfo(
   orderId: string,
   orderNumber: number,
-  info: { name: string; phone: string; address: string; notes: string; payment: "efectivo" | "transferencia" }
+  info: {
+    name: string;
+    phone: string;
+    address: string;
+    notes: string;
+    payment: "efectivo" | "transferencia";
+    fulfillment: "domicilio" | "recoger";
+    deliveryFee: number;
+    disposablesFee: number;
+  }
 ): Promise<ActionResult> {
+  if (!Number.isFinite(info.deliveryFee) || info.deliveryFee < 0) return { error: "El valor del domicilio no es válido" };
+  if (!Number.isFinite(info.disposablesFee) || info.disposablesFee < 0) return { error: "El valor de desechables no es válido" };
   const profile = await pedidosContext();
   const supabase = await createClient();
 
@@ -148,6 +159,9 @@ export async function updateDeliveryInfo(
     p_address: info.address,
     p_notes: info.notes,
     p_payment: info.payment,
+    p_fulfillment: info.fulfillment,
+    p_delivery_fee: info.deliveryFee,
+    p_disposables_fee: info.disposablesFee,
   });
   if (error) return { error: friendlyDbError(error, "updateDeliveryInfo", "No se pudieron guardar los cambios") };
 

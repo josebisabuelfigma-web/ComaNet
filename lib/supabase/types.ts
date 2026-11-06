@@ -206,6 +206,7 @@ export type CashMovement = {
   payment_method: PaymentMethod;
   invoice_path: string | null;
   invoice_name: string | null;
+  counterparty: string | null;
   created_by: string | null;
   created_at: string;
 };
@@ -399,6 +400,9 @@ export type Database = {
           p_address: string;
           p_notes: string;
           p_payment: PaymentMethod;
+          p_fulfillment?: Fulfillment | null;
+          p_delivery_fee?: number | null;
+          p_disposables_fee?: number | null;
         };
         Returns: undefined;
       };
@@ -410,6 +414,7 @@ export type Database = {
           p_payment: PaymentMethod;
           p_invoice_path: string | null;
           p_invoice_name: string | null;
+          p_counterparty?: string | null;
         };
         Returns: string;
       };

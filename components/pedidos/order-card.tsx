@@ -32,6 +32,8 @@ export interface OrderCardMenu {
   categories: MenuCategory[];
   products: MenuProduct[];
   comboItems: MenuComboItem[];
+  /** Valor de domicilio de Ajustes, para sugerirlo al cambiar a domicilio. */
+  defaultDeliveryFee: number;
 }
 
 export function OrderCard({
@@ -57,6 +59,14 @@ export function OrderCard({
 
   const unsent = items.filter((i) => !i.sent_to_kitchen_at).length;
   const firstSend = !items.some((i) => i.sent_to_kitchen_at);
+  const kitchenBadge: { label: string; variant: "default" | "success" | "muted" } = firstSend
+    ? { label: "Sin enviar a cocina", variant: "muted" }
+    : unsent > 0
+      ? { label: "Productos nuevos sin enviar a cocina", variant: "default" }
+      : order.kitchen_done_at
+        ? { label: "Listo en cocina (aún no despachado)", variant: "success" }
+        : { label: "En cocina", variant: "default" };
+  const missingAddress = order.fulfillment !== "recoger" && !order.address;
   const whatsapp = whatsappLink(
     order.customer_phone,
     `Hola ${order.customer_name ?? ""}, recibimos tu pedido. Antes de enviarlo a preparar, ¿quieres hacer algún cambio?`
@@ -84,15 +94,7 @@ export function OrderCard({
             <Badge variant={badge.variant}>{badge.label}</Badge>
             <Badge variant="outline">{order.fulfillment === "recoger" ? "Recoger" : "Domicilio"}</Badge>
             {kitchenEnabled && pending && (
-              <Badge variant={order.kitchen_done_at ? "success" : firstSend ? "muted" : "default"}>
-                {order.kitchen_done_at
-                  ? "Listo en cocina"
-                  : firstSend
-                    ? "Sin enviar a cocina"
-                    : unsent > 0
-                      ? "En cocina · cambios sin enviar"
-                      : "En cocina"}
-              </Badge>
+              <Badge variant={kitchenBadge.variant}>{kitchenBadge.label}</Badge>
             )}
           </div>
           <p className="text-sm text-brand-muted">{formatDateTime(order.created_at)}</p>
@@ -125,9 +127,9 @@ export function OrderCard({
               Recoge en el local
             </p>
           ) : (
-            <p className="flex items-center gap-1.5 text-brand-muted">
+            <p className={`flex items-center gap-1.5 ${missingAddress ? "font-medium text-brand-danger" : "text-brand-muted"}`}>
               <MapPin className="h-3.5 w-3.5" />
-              {order.address}
+              {order.address || "Falta la dirección: pídesela al cliente y complétala en Editar pedido"}
             </p>
           )}
         </div>
@@ -148,7 +150,8 @@ export function OrderCard({
               <li key={item.id}>
                 <div className="flex justify-between gap-2">
                   <span>
-                    {item.quantity} × {item.product_name}
+                    {item.quantity} × {item.product_name}{" "}
+                    {kitchenEnabled && pending && !item.sent_to_kitchen_at && <Badge variant="muted">Sin enviar</Badge>}
                   </span>
                   <span className="text-brand-muted">
                     {formatMoney(Number(item.unit_price) * item.quantity, currency)}
@@ -173,6 +176,7 @@ export function OrderCard({
             currency={currency}
             onAdd={(productId) => run(() => addDeliveryItem(order.id, productId, ""))}
             onSaveInfo={(info) => run(() => updateDeliveryInfo(order.id, order.order_number, info))}
+            defaultDeliveryFee={menu.defaultDeliveryFee}
           />
         )}
 
@@ -317,6 +321,7 @@ function EditPanel({
   currency,
   onAdd,
   onSaveInfo,
+  defaultDeliveryFee,
 }: {
   order: Order;
   menu: OrderCardMenu;
@@ -329,7 +334,11 @@ function EditPanel({
     address: string;
     notes: string;
     payment: "efectivo" | "transferencia";
+    fulfillment: "domicilio" | "recoger";
+    deliveryFee: number;
+    disposablesFee: number;
   }) => void;
+  defaultDeliveryFee: number;
 }) {
   const [productId, setProductId] = React.useState("");
   const [name, setName] = React.useState(order.customer_name ?? "");
@@ -337,8 +346,17 @@ function EditPanel({
   const [address, setAddress] = React.useState(order.address ?? "");
   const [notes, setNotes] = React.useState(order.notes ?? "");
   const [payment, setPayment] = React.useState<"efectivo" | "transferencia">(order.payment_method ?? "efectivo");
+  const [fulfillment, setFulfillment] = React.useState<"domicilio" | "recoger">(order.fulfillment ?? "domicilio");
+  const [deliveryFee, setDeliveryFee] = React.useState(String(Number(order.delivery_fee)));
+  const [disposablesFee, setDisposablesFee] = React.useState(String(Number(order.disposables_fee)));
   const blocked = unavailableProductIds(menu.products, menu.comboItems);
   const options = menu.products.filter((p) => !blocked.has(p.id));
+
+  function changeFulfillment(value: "domicilio" | "recoger") {
+    setFulfillment(value);
+    if (value === "recoger") setDeliveryFee("0");
+    else if (Number(deliveryFee) === 0) setDeliveryFee(String(defaultDeliveryFee));
+  }
 
   return (
     <div className="flex flex-col gap-3 rounded-[var(--radius-brand-sm)] border border-dashed border-brand-border p-3">
@@ -381,22 +399,23 @@ function EditPanel({
 
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <label className="flex flex-col gap-1 text-xs text-brand-muted">
-          Nombre
+          Nombre del cliente
           <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={120} />
         </label>
         <label className="flex flex-col gap-1 text-xs text-brand-muted">
           Teléfono
           <Input value={phone} onChange={(event) => setPhone(event.target.value)} maxLength={30} />
         </label>
-        {order.fulfillment !== "recoger" && (
-          <label className="flex flex-col gap-1 text-xs text-brand-muted sm:col-span-2">
-            Dirección
-            <Input value={address} onChange={(event) => setAddress(event.target.value)} maxLength={250} />
-          </label>
-        )}
-        <label className="flex flex-col gap-1 text-xs text-brand-muted sm:col-span-2">
-          Observaciones
-          <Input value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={300} />
+        <label className="flex flex-col gap-1 text-xs text-brand-muted">
+          Tipo de entrega
+          <select
+            value={fulfillment}
+            onChange={(event) => changeFulfillment(event.target.value as "domicilio" | "recoger")}
+            className="h-10 rounded-[var(--radius-brand-sm)] border border-brand-border bg-white px-2 text-sm text-brand-ink"
+          >
+            <option value="domicilio">Domicilio</option>
+            <option value="recoger">Recoger en el local</option>
+          </select>
         </label>
         <label className="flex flex-col gap-1 text-xs text-brand-muted">
           Medio de pago
@@ -409,13 +428,58 @@ function EditPanel({
             <option value="transferencia">Transferencia</option>
           </select>
         </label>
+        <label className="flex flex-col gap-1 text-xs text-brand-muted sm:col-span-2">
+          Dirección {fulfillment === "domicilio" && !address.trim() && <span className="text-brand-danger">(falta)</span>}
+          <Input
+            value={address}
+            onChange={(event) => setAddress(event.target.value)}
+            maxLength={250}
+            placeholder="Calle, número, barrio y referencias"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-brand-muted">
+          Valor del domicilio
+          <Input
+            type="number"
+            min={0}
+            step="any"
+            value={deliveryFee}
+            disabled={fulfillment === "recoger"}
+            onChange={(event) => setDeliveryFee(event.target.value)}
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-brand-muted">
+          Desechables
+          <Input
+            type="number"
+            min={0}
+            step="any"
+            value={disposablesFee}
+            onChange={(event) => setDisposablesFee(event.target.value)}
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-brand-muted sm:col-span-2">
+          Observaciones del pedido
+          <Input value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={300} />
+        </label>
       </div>
       <Button
         className="w-fit"
         disabled={busy}
-        onClick={() => onSaveInfo({ name, phone, address, notes, payment })}
+        onClick={() =>
+          onSaveInfo({
+            name,
+            phone,
+            address,
+            notes,
+            payment,
+            fulfillment,
+            deliveryFee: Number(deliveryFee || 0),
+            disposablesFee: Number(disposablesFee || 0),
+          })
+        }
       >
-        Guardar datos del cliente
+        Guardar datos del pedido
       </Button>
     </div>
   );

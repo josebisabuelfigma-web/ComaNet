@@ -4,12 +4,14 @@ import { requireOrgRole } from "@/lib/auth";
 import { requireModule, MODULE_KEYS } from "@/lib/modules";
 import { createClient } from "@/lib/supabase/server";
 import {
-  dayRangeToTimestamps,
+  cleanSearch,
+  dateTimeRange,
   formatDateTime,
   formatMoney,
-  normalizeDay,
+  normalizeDateTime,
   todayInColombia,
 } from "@/lib/format";
+import { RangeFilter } from "@/components/range-filter";
 import { isPdf, signInvoiceUrls } from "@/lib/invoices";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -19,29 +21,31 @@ import type { CashMovement } from "@/lib/supabase/types";
 export default async function FacturasPage({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string; to?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; q?: string }>;
 }) {
   const profile = await requireOrgRole("owner", "cajero");
   await requireModule(profile.organization_id, MODULE_KEYS.FINANZAS);
 
   const params = await searchParams;
   const today = todayInColombia();
-  const from = normalizeDay(params.from, `${today.slice(0, 8)}01`);
-  const to = normalizeDay(params.to, today);
-  const range = from <= to ? { from, to } : { from: to, to: from };
-  const { from: fromTs, to: toTs } = dayRangeToTimestamps(range.from, range.to);
+  const range = dateTimeRange(
+    normalizeDateTime(params.from, `${today.slice(0, 8)}01T00:00`),
+    normalizeDateTime(params.to, `${today}T23:59`, true)
+  );
+  const search = cleanSearch(params.q);
 
   const supabase = await createClient();
+  let movesQuery = supabase
+    .from("cash_movements")
+    .select("*")
+    .eq("organization_id", profile.organization_id)
+    .not("invoice_path", "is", null)
+    .gte("created_at", range.from)
+    .lt("created_at", range.to);
+  if (search) movesQuery = movesQuery.or(`description.ilike.%${search}%,counterparty.ilike.%${search}%`);
+
   const [{ data: moves }, { data: org }] = await Promise.all([
-    supabase
-      .from("cash_movements")
-      .select("*")
-      .eq("organization_id", profile.organization_id)
-      .not("invoice_path", "is", null)
-      .gte("created_at", fromTs)
-      .lt("created_at", toTs)
-      .order("created_at", { ascending: false })
-      .limit(200),
+    movesQuery.order("created_at", { ascending: false }).limit(200),
     supabase.from("organizations").select("currency").eq("id", profile.organization_id).single(),
   ]);
 
@@ -63,32 +67,17 @@ export default async function FacturasPage({
             {list.length > 0 ? ` · egresos con factura ${money(totalEgresos)}` : ""}.
           </p>
         </div>
-        <form className="flex flex-wrap items-end gap-2">
-          <label className="flex flex-col gap-1 text-xs text-brand-muted">
-            Desde
-            <input
-              type="date"
-              name="from"
-              defaultValue={range.from}
-              className="h-10 rounded-[var(--radius-brand-sm)] border border-brand-border bg-white px-3 text-sm text-brand-ink"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-brand-muted">
-            Hasta
-            <input
-              type="date"
-              name="to"
-              defaultValue={range.to}
-              className="h-10 rounded-[var(--radius-brand-sm)] border border-brand-border bg-white px-3 text-sm text-brand-ink"
-            />
-          </label>
-          <Button type="submit">Ver</Button>
-        </form>
+        <RangeFilter
+          fromLocal={range.fromLocal}
+          toLocal={range.toLocal}
+          query={search}
+          searchLabel="Buscar persona o proveedor"
+        />
       </div>
 
       {list.length === 0 ? (
         <div className="rounded-[var(--radius-brand-md)] border border-dashed border-brand-border bg-white p-10 text-center text-brand-muted">
-          No hay facturas en estas fechas. Adjúntalas desde Ingresos y egresos.
+          No hay facturas con estos filtros. Adjúntalas desde Ingresos y egresos.
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -119,6 +108,11 @@ export default async function FacturasPage({
                       {move.type === "egreso" ? "Egreso" : "Ingreso"}
                     </Badge>
                   </div>
+                  {move.counterparty && (
+                    <p className="text-sm text-brand-ink">
+                      {move.type === "egreso" ? "Pagado a" : "Recibido de"}: <strong>{move.counterparty}</strong>
+                    </p>
+                  )}
                   <p className="text-xl font-semibold text-brand-ink">{money(Number(move.amount))}</p>
                   <p className="text-sm text-brand-muted">
                     {formatDateTime(move.created_at)} · <span className="capitalize">{move.payment_method}</span>
