@@ -26,6 +26,19 @@ interface CashManagerProps {
   invoiceEnabled: boolean;
 }
 
+/** Renglón de una cuenta: "+ Ventas en efectivo ...... $X". */
+function Line({ sign, label, value, bold }: { sign?: "+" | "−" | "="; label: string; value: string; bold?: boolean }) {
+  return (
+    <div className={`flex items-baseline justify-between gap-3 text-sm ${bold ? "border-t border-brand-border pt-2 font-semibold text-brand-ink" : "text-brand-muted"}`}>
+      <span>
+        {sign && <span className="mr-1.5 inline-block w-3 text-center">{sign}</span>}
+        {label}
+      </span>
+      <span className={bold ? "text-lg" : "text-brand-ink"}>{value}</span>
+    </div>
+  );
+}
+
 function Stat({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return (
     <div className="rounded-[var(--radius-brand-sm)] bg-black/[0.03] p-3">
@@ -49,18 +62,45 @@ export function CashManager({
   const money = (n: number) => formatMoney(n, currency);
   const [opening, setOpening] = React.useState("");
   const [counted, setCounted] = React.useState("");
+  const [countedTransfer, setCountedTransfer] = React.useState("");
   const [closeNotes, setCloseNotes] = React.useState("");
   const [confirmClose, setConfirmClose] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  // Solo el efectivo mueve el arqueo; las transferencias se listan pero no cuentan.
-  const cashMoves = movements.filter((m) => m.payment_method === "efectivo");
-  const ingresos = cashMoves.filter((m) => m.type === "ingreso").reduce((s, m) => s + Number(m.amount), 0);
-  const egresos = cashMoves.filter((m) => m.type === "egreso").reduce((s, m) => s + Number(m.amount), 0);
-  const expected = (session ? Number(session.opening_amount) : 0) + cashSales + ingresos - egresos;
+  // Dos cuentas separadas: el efectivo (cajón) y las transferencias (cuenta del banco).
+  const sumBy = (type: "ingreso" | "egreso", method: "efectivo" | "transferencia") =>
+    movements
+      .filter((m) => m.type === type && m.payment_method === method)
+      .reduce((acc, m) => acc + Number(m.amount), 0);
+  const cashIn = sumBy("ingreso", "efectivo");
+  const cashOut = sumBy("egreso", "efectivo");
+  const transferIn = sumBy("ingreso", "transferencia");
+  const transferOut = sumBy("egreso", "transferencia");
+
+  const opening_ = session ? Number(session.opening_amount) : 0;
+  const expected = opening_ + cashSales + cashIn - cashOut;
+  const expectedTransfer = transferSales + transferIn - transferOut;
+  const expectedTotal = expected + expectedTransfer;
+
   const countedNumber = Number(counted);
+  const countedTransferNumber = Number(countedTransfer);
   const difference = counted === "" ? null : countedNumber - expected;
+  // Si no hubo movimiento por transferencia no hay nada que verificar.
+  const transferNeeded = expectedTransfer !== 0;
+  const transferEntered = countedTransfer !== "";
+  const differenceTransfer = transferEntered
+    ? countedTransferNumber - expectedTransfer
+    : transferNeeded
+      ? null
+      : 0;
+  const differenceTotal =
+    difference !== null && differenceTransfer !== null ? difference + differenceTransfer : null;
+  const canClose = counted !== "" && (!transferNeeded || transferEntered);
+
+  const diffText = (value: number) =>
+    value === 0 ? "Cuadra" : value > 0 ? `Sobrante ${money(value)}` : `Faltante ${money(Math.abs(value))}`;
+  const diffClass = (value: number) => (value === 0 ? "text-brand-success" : "text-brand-danger");
 
   async function run(action: () => Promise<{ error?: string } | void>) {
     setBusy(true);
@@ -82,10 +122,13 @@ export function CashManager({
 
   async function handleClose() {
     if (!session) return;
-    const ok = await run(() => closeCash(session.id, countedNumber, closeNotes));
+    const ok = await run(() =>
+      closeCash(session.id, countedNumber, transferEntered ? countedTransferNumber : null, closeNotes)
+    );
     setConfirmClose(false);
     if (ok) {
       setCounted("");
+      setCountedTransfer("");
       setCloseNotes("");
     }
   }
@@ -95,7 +138,7 @@ export function CashManager({
       <div>
         <h1 className="text-2xl font-semibold text-brand-ink">Caja</h1>
         <p className="text-sm text-brand-muted">
-          Abre con la base, registra ingresos y egresos, y cierra con el arqueo de efectivo.
+          Abre con la base, registra ingresos y egresos, y cierra cuadrando el efectivo y las transferencias por separado.
         </p>
       </div>
 
@@ -138,13 +181,24 @@ export function CashManager({
               </CardTitle>
               <CardDescription>Desde {formatDateTime(session.opened_at)}</CardDescription>
             </CardHeader>
-            <CardContent className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <Stat label="Base inicial" value={money(Number(session.opening_amount))} />
-              <Stat label={`Ventas en efectivo (${ordersCount} pedidos en total)`} value={money(cashSales)} />
-              <Stat label="Ventas por transferencia" value={money(transferSales)} />
-              <Stat label="Ingresos − egresos" value={money(ingresos - egresos)} />
-              <div className="col-span-2 lg:col-span-4">
-                <Stat label="Efectivo que debería haber en caja" value={money(expected)} strong />
+            <CardContent className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <div className="flex flex-col gap-2 rounded-[var(--radius-brand-sm)] bg-black/[0.03] p-4">
+                <p className="font-semibold text-brand-ink">Efectivo (cajón)</p>
+                <Line sign="+" label="Base inicial" value={money(opening_)} />
+                <Line sign="+" label={`Ventas en efectivo (${ordersCount} pedidos en total)`} value={money(cashSales)} />
+                <Line sign="+" label="Ingresos en efectivo" value={money(cashIn)} />
+                <Line sign="−" label="Egresos en efectivo" value={money(cashOut)} />
+                <Line sign="=" label="Efectivo que debería haber" value={money(expected)} bold />
+              </div>
+              <div className="flex flex-col gap-2 rounded-[var(--radius-brand-sm)] bg-black/[0.03] p-4">
+                <p className="font-semibold text-brand-ink">Transferencias (cuenta)</p>
+                <Line sign="+" label="Ventas por transferencia" value={money(transferSales)} />
+                <Line sign="+" label="Ingresos por transferencia" value={money(transferIn)} />
+                <Line sign="−" label="Egresos por transferencia" value={money(transferOut)} />
+                <Line sign="=" label="Transferencias del turno que deberías ver" value={money(expectedTransfer)} bold />
+              </div>
+              <div className="lg:col-span-2">
+                <Stat label="Total esperado del turno (efectivo + transferencias)" value={money(expectedTotal)} strong />
               </div>
             </CardContent>
           </Card>
@@ -168,7 +222,7 @@ export function CashManager({
                         {move.counterparty && <span className="ml-1 text-brand-muted">· {move.counterparty}</span>}
                         {move.payment_method === "transferencia" && (
                           <Badge variant="muted" className="ml-2">
-                            Transferencia · no afecta el efectivo
+                            Transferencia
                           </Badge>
                         )}
                         {move.invoice_path && (
@@ -192,12 +246,12 @@ export function CashManager({
               <CardHeader>
                 <CardTitle>Cerrar caja (arqueo)</CardTitle>
                 <CardDescription>
-                  Cuenta el efectivo físico y compáralo con lo esperado.
+                  Cuenta el efectivo y revisa las transferencias en tu cuenta; cada una debe cuadrar con lo esperado.
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex flex-col gap-3">
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="counted">Efectivo contado</Label>
+                  <Label htmlFor="counted">Efectivo contado en el cajón</Label>
                   <Input
                     id="counted"
                     type="number"
@@ -206,18 +260,36 @@ export function CashManager({
                     value={counted}
                     onChange={(event) => setCounted(event.target.value)}
                   />
+                  {difference !== null && (
+                    <p className={`text-sm font-medium ${diffClass(difference)}`}>Efectivo: {diffText(difference)}</p>
+                  )}
                 </div>
-                {difference !== null && (
-                  <p
-                    className={`text-sm font-medium ${
-                      difference === 0 ? "text-brand-success" : "text-brand-danger"
-                    }`}
-                  >
-                    {difference === 0
-                      ? "La caja cuadra."
-                      : difference > 0
-                        ? `Sobrante: ${money(difference)}`
-                        : `Faltante: ${money(Math.abs(difference))}`}
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="countedTransfer">
+                    Transferencias del turno según tu cuenta (recibido − pagado)
+                  </Label>
+                  <Input
+                    id="countedTransfer"
+                    type="number"
+                    step="any"
+                    value={countedTransfer}
+                    onChange={(event) => setCountedTransfer(event.target.value)}
+                    placeholder={transferNeeded ? String(expectedTransfer) : "0"}
+                  />
+                  <p className="text-xs text-brand-muted">
+                    {transferNeeded
+                      ? "Revisa el banco o la app: suma lo que entró por ventas e ingresos y resta lo que pagaste por transferencia en este turno."
+                      : "No hubo movimientos por transferencia en este turno."}
+                  </p>
+                  {differenceTransfer !== null && transferNeeded && (
+                    <p className={`text-sm font-medium ${diffClass(differenceTransfer)}`}>
+                      Transferencias: {diffText(differenceTransfer)}
+                    </p>
+                  )}
+                </div>
+                {differenceTotal !== null && (
+                  <p className={`text-sm font-semibold ${diffClass(differenceTotal)}`}>
+                    Total del turno: {diffText(differenceTotal)}
                   </p>
                 )}
                 <div className="flex flex-col gap-1.5">
@@ -228,7 +300,7 @@ export function CashManager({
                 <Button
                   variant="dark"
                   className="w-fit"
-                  disabled={busy || counted === ""}
+                  disabled={busy || !canClose}
                   onClick={() => setConfirmClose(true)}
                 >
                   Cerrar caja
@@ -245,16 +317,18 @@ export function CashManager({
             <CardTitle>Cierres anteriores</CardTitle>
           </CardHeader>
           <CardContent className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-sm">
+            <table className="w-full min-w-[900px] text-sm">
               <thead>
                 <tr className="border-b border-brand-border text-left text-brand-muted">
                   <th className="p-2 font-medium">Cierre</th>
                   <th className="p-2 font-medium">Base</th>
                   <th className="p-2 font-medium">Ventas efectivo</th>
-                  <th className="p-2 font-medium">Transferencias</th>
-                  <th className="p-2 font-medium">Esperado</th>
+                  <th className="p-2 font-medium">Esperado efectivo</th>
                   <th className="p-2 font-medium">Contado</th>
-                  <th className="p-2 font-medium">Diferencia</th>
+                  <th className="p-2 font-medium">Dif. efectivo</th>
+                  <th className="p-2 font-medium">Esperado transf.</th>
+                  <th className="p-2 font-medium">Verificado</th>
+                  <th className="p-2 font-medium">Dif. transf.</th>
                 </tr>
               </thead>
               <tbody>
@@ -263,16 +337,24 @@ export function CashManager({
                     <td className="p-2 whitespace-nowrap">{formatDateTime(row.closed_at)}</td>
                     <td className="p-2">{money(Number(row.opening_amount))}</td>
                     <td className="p-2">{money(Number(row.summary?.cash_sales ?? 0))}</td>
-                    <td className="p-2">{money(Number(row.summary?.transfer_sales ?? 0))}</td>
                     <td className="p-2">{money(Number(row.expected_cash ?? 0))}</td>
                     <td className="p-2">{money(Number(row.counted_cash ?? 0))}</td>
-                    <td
-                      className={`p-2 font-medium ${
-                        Number(row.difference) === 0 ? "text-brand-success" : "text-brand-danger"
-                      }`}
-                    >
+                    <td className={`p-2 font-medium ${diffClass(Number(row.difference ?? 0))}`}>
                       {money(Number(row.difference ?? 0))}
                     </td>
+                    {row.expected_transfer === null ? (
+                      <td className="p-2 text-brand-muted" colSpan={3}>
+                        Transferencias sin verificar (cierre anterior). Ventas: {money(Number(row.summary?.transfer_sales ?? 0))}
+                      </td>
+                    ) : (
+                      <>
+                        <td className="p-2">{money(Number(row.expected_transfer))}</td>
+                        <td className="p-2">{money(Number(row.counted_transfer ?? 0))}</td>
+                        <td className={`p-2 font-medium ${diffClass(Number(row.difference_transfer ?? 0))}`}>
+                          {money(Number(row.difference_transfer ?? 0))}
+                        </td>
+                      </>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -285,7 +367,7 @@ export function CashManager({
         open={confirmClose}
         onOpenChange={setConfirmClose}
         title="Cerrar caja"
-        description={`Vas a cerrar el turno con ${money(countedNumber)} contados (esperado ${money(expected)}). Esta acción no se puede deshacer.`}
+        description={`Efectivo: contado ${money(countedNumber)}, esperado ${money(expected)}. Transferencias: ${transferEntered ? `verificado ${money(countedTransferNumber)}` : "sin movimientos"}, esperado ${money(expectedTransfer)}. Esta acción no se puede deshacer.`}
         confirmLabel="Cerrar caja"
         isLoading={busy}
         onConfirm={handleClose}

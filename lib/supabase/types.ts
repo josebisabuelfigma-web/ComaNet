@@ -186,12 +186,17 @@ export type CashSession = {
   counted_cash: number | null;
   expected_cash: number | null;
   difference: number | null;
+  expected_transfer: number | null;
+  counted_transfer: number | null;
+  difference_transfer: number | null;
   summary: {
     orders: number;
     cash_sales: number;
     transfer_sales: number;
     ingresos: number;
     egresos: number;
+    transfer_ingresos?: number;
+    transfer_egresos?: number;
   } | null;
   notes: string | null;
 };
@@ -420,7 +425,12 @@ export type Database = {
       };
       open_cash_session: { Args: { p_opening: number }; Returns: string };
       close_cash_session: {
-        Args: { p_session_id: string; p_counted: number; p_notes: string };
+        Args: {
+          p_session_id: string;
+          p_counted: number;
+          p_notes: string;
+          p_counted_transfer?: number | null;
+        };
         Returns: {
           orders: number;
           cash_sales: number;
@@ -430,6 +440,9 @@ export type Database = {
           expected_cash: number;
           counted_cash: number;
           difference: number;
+          expected_transfer: number;
+          counted_transfer: number;
+          difference_transfer: number;
         };
       };
       report_sales_summary: {

@@ -331,7 +331,13 @@ await db.query("select close_table_order($1,'efectivo')", [openMesa.id]); // 450
 await db.query("select dispatch_order($1)", [p2.order_id]); // 40000 transferencia
 await db.query("insert into cash_movements (organization_id, session_id, type, amount, description) values ($1,$2,'egreso',5000,'gaseosas')", [A, sessionId]);
 await db.query("insert into cash_movements (organization_id, session_id, type, amount, description) values ($1,$2,'ingreso',2000,'sencillo')", [A, sessionId]);
-const closed = (await db.query("select close_cash_session($1, 92000, 'ok') as r", [sessionId])).rows[0].r;
+await db.query("select register_cash_movement('egreso', 8000, 'proveedor', 'transferencia', null, null, 'Don Pedro')");
+await db.query("select register_cash_movement('ingreso', 3000, 'abono', 'transferencia', null, null, null)");
+check((await db.query("select count(*)::int n from cash_movements where session_id=$1 and payment_method='transferencia'", [sessionId])).rows[0].n === 2, "las transferencias hechas en caja quedan en el turno");
+check((await db.query("select close_cash_session($1, 92000, 'ok') as r", [sessionId]).then(() => false).catch((e) => e.message.includes("transferencias"))), "con movimiento por transferencia hay que verificarlo para cerrar");
+const closed = (await db.query("select close_cash_session($1, 92000, 'ok', 34000) as r", [sessionId])).rows[0].r;
+check(Number(closed.expected_transfer) === 35000 && Number(closed.difference_transfer) === -1000, "arqueo: transferencias esperadas (ventas + ingresos − egresos) y diferencia", JSON.stringify(closed));
+check(Number(closed.difference) === 0, "el efectivo cuadra aparte de las transferencias");
 // esperado = base 50000 + efectivo (45000 de la mesa) + 2000 - 5000 = 92000.
 check(Number(closed.cash_sales) === 45000, "arqueo: ventas en efectivo del turno", JSON.stringify(closed));
 check(Number(closed.transfer_sales) === 40000, "arqueo: ventas por transferencia del turno");

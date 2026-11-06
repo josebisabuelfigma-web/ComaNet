@@ -38,9 +38,7 @@ export default async function CajaPage() {
       supabase
         .from("cash_movements")
         .select("*")
-        .eq("organization_id", profile.organization_id)
-        // Los del turno (efectivo) y las transferencias hechas desde que se abrió la caja.
-        .or(`session_id.eq.${session.id},and(session_id.is.null,created_at.gte.${session.opened_at})`)
+        .eq("session_id", session.id)
         .order("created_at", { ascending: false }),
       supabase
         .from("orders")

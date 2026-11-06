@@ -35,24 +35,28 @@ export async function openCash(opening: number): Promise<ActionResult> {
 export async function closeCash(
   sessionId: string,
   counted: number,
+  countedTransfer: number | null,
   notes: string
 ): Promise<ActionResult> {
   const profile = await cajaContext();
   const parsed = amountSchema.safeParse(counted);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message };
+  const parsedTransfer = countedTransfer === null ? null : amountSchema.safeParse(countedTransfer);
+  if (parsedTransfer && !parsedTransfer.success) return { error: parsedTransfer.error.issues[0]?.message };
 
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("close_cash_session", {
     p_session_id: sessionId,
     p_counted: parsed.data,
     p_notes: notes,
+    p_counted_transfer: parsedTransfer?.success ? parsedTransfer.data : null,
   });
   if (error) return { error: friendlyDbError(error, "closeCash", "No se pudo cerrar la caja") };
 
   await logActivity(
     profile,
     "Cerró caja",
-    `Esperado ${data?.expected_cash} · contado ${parsed.data} · diferencia ${data?.difference}`
+    `Efectivo: esperado ${data?.expected_cash} · contado ${parsed.data} · diferencia ${data?.difference}. Transferencias: esperado ${data?.expected_transfer} · verificado ${data?.counted_transfer} · diferencia ${data?.difference_transfer}`
   );
   revalidatePath("/dashboard/caja");
 }
