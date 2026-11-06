@@ -13,12 +13,17 @@ export function RangeFilter({
   toLocal,
   query,
   searchLabel,
+  invoiceFilter,
+  onlyInvoice,
 }: {
   fromLocal: string;
   toLocal: string;
   query?: string;
   /** Si se indica, muestra la casilla de búsqueda con esa etiqueta. */
   searchLabel?: string;
+  /** Muestra la casilla "Solo con factura". */
+  invoiceFilter?: boolean;
+  onlyInvoice?: boolean;
 }) {
   return (
     <form className="flex flex-wrap items-end gap-2">
@@ -40,6 +45,12 @@ export function RangeFilter({
             placeholder="Nombre, proveedor o descripción"
             className={`${fieldClass} w-60`}
           />
+        </label>
+      )}
+      {invoiceFilter && (
+        <label className="flex h-10 items-center gap-2 text-sm text-brand-ink">
+          <input type="checkbox" name="factura" value="1" defaultChecked={onlyInvoice} className="h-4 w-4" />
+          Solo con factura
         </label>
       )}
       <Button type="submit">Ver</Button>

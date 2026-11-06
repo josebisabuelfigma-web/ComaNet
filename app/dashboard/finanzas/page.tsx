@@ -33,7 +33,7 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: "su
 export default async function FinanzasPage({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string; to?: string; q?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; q?: string; factura?: string }>;
 }) {
   const profile = await requireOrgRole("owner", "cajero");
   await requireModule(profile.organization_id, MODULE_KEYS.FINANZAS);
@@ -45,6 +45,7 @@ export default async function FinanzasPage({
     normalizeDateTime(params.to, `${today}T23:59`, true)
   );
   const search = cleanSearch(params.q);
+  const onlyInvoice = params.factura === "1";
 
   const supabase = await createClient();
   const cajaOn = await isModuleEnabled(profile.organization_id, MODULE_KEYS.CAJA);
@@ -54,6 +55,7 @@ export default async function FinanzasPage({
     .eq("organization_id", profile.organization_id)
     .gte("created_at", range.from)
     .lt("created_at", range.to);
+  if (onlyInvoice) movesQuery = movesQuery.not("invoice_path", "is", null);
   if (search) movesQuery = movesQuery.or(`description.ilike.%${search}%,counterparty.ilike.%${search}%`);
 
   const [{ data: moves }, { data: org }] = await Promise.all([
@@ -83,7 +85,7 @@ export default async function FinanzasPage({
           <p className="text-sm text-brand-muted">
             {cajaOn
               ? "Registro de los ingresos y egresos hechos en Caja. Para registrar uno nuevo, entra a Caja."
-              : "Registra lo que entra y sale del negocio. Adjunta la factura y consúltala después en Facturas."}
+              : "Registra lo que entra y sale del negocio. Adjunta la factura al registrar y ábrela después desde la lista (con el filtro Solo con factura las ves todas)."}
           </p>
         </div>
         <RangeFilter
@@ -91,6 +93,8 @@ export default async function FinanzasPage({
           toLocal={range.toLocal}
           query={search}
           searchLabel="Buscar persona o proveedor"
+          invoiceFilter
+          onlyInvoice={onlyInvoice}
         />
       </div>
 
@@ -100,7 +104,7 @@ export default async function FinanzasPage({
           <Link href="/dashboard/caja/turno" className="font-medium text-brand-ink underline">
             Caja
           </Link>
-          ; aquí los consultas, los buscas y ves sus facturas.
+          ; aquí los consultas, los buscas y abres sus facturas.
         </p>
       ) : (
         <Card>
@@ -122,7 +126,7 @@ export default async function FinanzasPage({
 
       <Card>
         <CardHeader>
-          <CardTitle>{search ? `Resultados para "${search}"` : "Movimientos del periodo"}</CardTitle>
+          <CardTitle>{search ? `Resultados para "${search}"` : onlyInvoice ? "Movimientos con factura" : "Movimientos del periodo"}</CardTitle>
           <CardDescription>
             {list.length === 500 ? "Se muestran los 500 más recientes." : `${list.length} movimientos.`}
           </CardDescription>
@@ -138,7 +142,7 @@ export default async function FinanzasPage({
                   <th className="p-2 font-medium">Descripción</th>
                   <th className="p-2 font-medium">Persona / proveedor</th>
                   <th className="p-2 font-medium">Medio</th>
-                  <th className="p-2 font-medium">Factura</th>
+                  <th className="p-2 font-medium">Factura / soporte</th>
                   <th className="p-2 text-right font-medium">Valor</th>
                 </tr>
               </thead>

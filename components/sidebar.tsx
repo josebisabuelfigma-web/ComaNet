@@ -13,7 +13,6 @@ import {
   LayoutGrid,
   LogOut,
   Menu,
-  Receipt,
   Settings,
   ShieldCheck,
   User,
@@ -33,7 +32,6 @@ export interface SidebarNavItem {
     | "mesas"
     | "caja"
     | "finanzas"
-    | "facturas"
     | "cocina"
     | "reportes"
     | "ajustes"
@@ -51,7 +49,6 @@ const ICONS = {
   mesas: Armchair,
   caja: Wallet,
   finanzas: ArrowLeftRight,
-  facturas: Receipt,
   cocina: ChefHat,
   reportes: BarChart3,
   ajustes: Settings,
@@ -151,14 +148,17 @@ export function Sidebar({ fullName, roleLabel, items, brandName, brandLogoUrl }:
 
   return (
     <>
-      <div className="fixed inset-x-0 top-0 z-40 flex items-center justify-between bg-brand-ink px-4 py-3 text-white lg:hidden print:hidden">
-        <div className="flex items-center gap-2">
-          <BrandMark url={brandLogoUrl} size={28} />
-          <span className="text-sm font-semibold">{brandName}</span>
-        </div>
-        <button onClick={() => setOpen(true)} aria-label="Abrir menú" aria-expanded={open} className="rounded p-1 hover:bg-white/10">
+      <div className="fixed inset-x-0 top-0 z-40 flex items-center gap-3 bg-brand-ink px-4 py-3 text-white lg:hidden print:hidden">
+        <button
+          onClick={() => setOpen(true)}
+          aria-label="Abrir menú"
+          aria-expanded={open}
+          className="-ml-1 rounded p-1 hover:bg-white/10"
+        >
           <Menu className="h-6 w-6" />
         </button>
+        <BrandMark url={brandLogoUrl} size={28} />
+        <span className="truncate text-sm font-semibold">{brandName}</span>
       </div>
 
       <aside className="hidden w-64 shrink-0 lg:block print:hidden">{content}</aside>

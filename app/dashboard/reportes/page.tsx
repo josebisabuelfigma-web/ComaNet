@@ -254,7 +254,7 @@ export default async function ReportesPage({
               Dinero que entró o salió del negocio fuera de las ventas (compras, pagos, servicios…).{" "}
               {finanzasOn && (
                 <Link href="/dashboard/finanzas" className="underline">
-                  Registrar o ver facturas
+                  Ver movimientos y facturas
                 </Link>
               )}
             </CardDescription>

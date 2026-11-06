@@ -80,6 +80,5 @@ export async function registerMovement(formData: FormData): Promise<ActionResult
     `${amount} · ${counterparty ? counterparty + " · " : ""}${description.slice(0, 80)}${invoicePath ? " · con factura" : ""}`
   );
   revalidatePath("/dashboard/finanzas");
-  revalidatePath("/dashboard/facturas");
   revalidatePath("/dashboard/caja/turno");
 }

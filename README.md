@@ -62,7 +62,7 @@ total se recalcula). El teléfono abre WhatsApp con un mensaje listo.
 
 **Ingresos, egresos y facturas** (módulo `finanzas`, independiente de caja): registra
 movimientos con factura opcional (imagen o PDF) y consúltalos por fecha en
-*Ingresos y egresos* y *Facturas*.
+*Ingresos y egresos* (filtro "Solo con factura").
 
 ## 1. Crear el proyecto de Supabase
 

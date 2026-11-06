@@ -113,12 +113,6 @@ export default async function DashboardLayout({
         icon: "finanzas",
         locked: !isModuleEnabled(MODULE_KEYS.FINANZAS),
       });
-      items.push({
-        href: "/dashboard/facturas",
-        label: "Facturas",
-        icon: "facturas",
-        locked: !isModuleEnabled(MODULE_KEYS.FINANZAS),
-      });
     }
     if (isOwner) {
       items.push({
