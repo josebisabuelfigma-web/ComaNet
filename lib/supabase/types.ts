@@ -376,6 +376,8 @@ export type Database = {
           total: number;
         }[];
       };
+      rate_limit_hit: { Args: { p_key: string; p_window_seconds: number }; Returns: number };
+      rate_limit_count: { Args: { p_key: string; p_window_seconds: number }; Returns: number };
       dispatch_order: { Args: { p_order_id: string }; Returns: undefined };
       cancel_order: { Args: { p_order_id: string }; Returns: undefined };
       close_table_order: {

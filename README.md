@@ -77,7 +77,8 @@ movimientos con factura opcional (imagen o PDF) y consúltalos por fecha en
    `006_combos_cocina_recoger.sql`, `007_combo_disponibilidad.sql`, `008_realtime_carta.sql`,
    `009_horario.sql`, `010_cocina_envio_cobro_edicion.sql`, `011_finanzas_facturas.sql`,
    `012_movimientos_tercero.sql`, `013_editar_domicilio_completo.sql`,
-   `014_cierre_caja_transferencias.sql`, `015_cobro_en_caja.sql` y `016_cajero_solo_lectura.sql`.
+   `014_cierre_caja_transferencias.sql`, `015_cobro_en_caja.sql`, `016_cajero_solo_lectura.sql`
+   y `017_limite_intentos.sql`.
    (Ejecuta las migraciones nuevas ANTES de publicar el código que las usa.)
 
 ## 2. Crear el primer super administrador
@@ -112,7 +113,10 @@ el detalle de la organización.
 
 - Next.js (App Router) + TypeScript + Tailwind; Supabase (Postgres con RLS,
   Auth por usuario, Storage y Realtime).
-- Roles: `super_admin`, `owner`, `cajero`, `mesero`.
+- Roles: `super_admin`, `owner`, `cajero`, `mesero`, `cocina`.
+- Límite de intentos (`lib/rate-limit.ts`, tabla `rate_limits`): el login bloquea 15 min
+  tras 8 fallos por usuario o 25 por IP; los pedidos públicos admiten 6 por IP y 3 por
+  teléfono cada 10 min. Si la migración 017 no está, no bloquea (solo registra el error).
 - Pedidos públicos: la acción del servidor `lib/actions/public.ts` llama a la
   función `create_delivery_order`, que recalcula precios, disponibilidad,
   domicilio y desechables desde la base de datos (nunca confía en el cliente).

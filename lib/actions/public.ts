@@ -5,7 +5,12 @@ import { friendlyDbError } from "@/lib/db-errors";
 import { formatMoney, onlyDigits } from "@/lib/format";
 import { checkoutSchema } from "@/lib/validations/menu";
 import { isWithinSchedule } from "@/lib/schedule";
+import { clientIp, rateLimitHit } from "@/lib/rate-limit";
 import type { OrderItem } from "@/lib/supabase/types";
+
+const ORDER_WINDOW_SECONDS = 10 * 60;
+const MAX_ORDERS_PER_IP = 6; // varias personas pueden compartir la misma red (wifi)
+const MAX_ORDERS_PER_PHONE = 3;
 
 export type CheckoutInput = {
   orgId: string;
@@ -33,6 +38,17 @@ export async function createPublicOrder(input: CheckoutInput): Promise<CheckoutR
   const data = parsed.data;
   if (data.fulfillment === "domicilio" && (data.address ?? "").length < 5) {
     return { error: "Escribe la dirección de entrega" };
+  }
+
+  // Antispam: por IP y por teléfono, en ventanas de 10 minutos.
+  const ip = await clientIp();
+  const phone = onlyDigits(data.customerPhone);
+  const [ipHits, phoneHits] = await Promise.all([
+    rateLimitHit(`order:ip:${data.orgId}:${ip}`, ORDER_WINDOW_SECONDS),
+    rateLimitHit(`order:phone:${data.orgId}:${phone}`, ORDER_WINDOW_SECONDS),
+  ]);
+  if (ipHits > MAX_ORDERS_PER_IP || phoneHits > MAX_ORDERS_PER_PHONE) {
+    return { error: "Has enviado varios pedidos seguidos. Espera unos minutos o llama al negocio." };
   }
 
   const admin = createAdminClient();

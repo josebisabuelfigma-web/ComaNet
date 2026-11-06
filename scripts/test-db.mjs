@@ -772,6 +772,24 @@ await as(meseroA, async (s) => {
   check(await s.blocked("insert into orders (organization_id, channel, status, table_id) values ($1,'mesa','abierta',$2)", [A, m2.id]), "módulo mesas apagado bloquea abrir cuentas");
 });
 
+// Límite de intentos: solo el servidor (service_role) lo usa
+await as(null, async (s) => {
+  const a = (await s.q("select rate_limit_hit('t:k', 600) h"))[0].h;
+  const b = (await s.q("select rate_limit_hit('t:k', 600) h"))[0].h;
+  const c = (await s.q("select rate_limit_count('t:k', 600) h"))[0].h;
+  const d = (await s.q("select rate_limit_count('t:otra', 600) h"))[0].h;
+  check(a === 1 && b === 2, "rate_limit_hit suma intentos", `${a},${b}`);
+  check(c === 2 && d === 0, "rate_limit_count lee sin sumar", `${c},${d}`);
+}, "service_role");
+for (const role of ["anon", "authenticated"]) {
+  await as(ownerA, async (s) => {
+    check(await s.blocked("select rate_limit_hit('x', 60)"), `${role} no puede llamar rate_limit_hit`);
+    check(await s.blocked("select rate_limit_count('x', 60)"), `${role} no puede llamar rate_limit_count`);
+    check(await s.blocked("select * from rate_limits"), `${role} no puede leer rate_limits`);
+    check(await s.blocked("delete from rate_limits"), `${role} no puede borrar rate_limits`);
+  }, role);
+}
+
 console.log(`\n${passed} comprobaciones correctas, ${failures.length} fallidas.`);
 await db.end();
 process.exit(failures.length ? 1 : 0);
