@@ -3,7 +3,8 @@
 import * as React from "react";
 import { useActionState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Copy, ExternalLink, Plus, Trash2 } from "lucide-react";
+import QRCode from "qrcode";
+import { Check, Copy, Download, ExternalLink, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,9 +37,32 @@ export function PublicLinkCard({
   const [error, setError] = React.useState<string | null>(null);
   const [url, setUrl] = React.useState(`/m/${slug}`);
 
+  const [qrPng, setQrPng] = React.useState<string | null>(null);
+
   React.useEffect(() => {
     setUrl(`${window.location.origin}/m/${slug}`);
   }, [slug]);
+
+  React.useEffect(() => {
+    if (!url.startsWith("http")) return;
+    QRCode.toDataURL(url, { width: 1024, margin: 2, errorCorrectionLevel: "M" })
+      .then(setQrPng)
+      .catch(() => setQrPng(null));
+  }, [url]);
+
+  function downloadFile(href: string, name: string) {
+    const a = document.createElement("a");
+    a.href = href;
+    a.download = name;
+    a.click();
+  }
+
+  async function downloadSvg() {
+    const svg = await QRCode.toString(url, { type: "svg", margin: 2, errorCorrectionLevel: "M" });
+    const blobUrl = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
+    downloadFile(blobUrl, `qr-carta-${slug}.svg`);
+    URL.revokeObjectURL(blobUrl);
+  }
 
   async function copy() {
     await navigator.clipboard.writeText(url);
@@ -85,6 +109,29 @@ export function PublicLinkCard({
             </Button>
           </a>
         </div>
+        {qrPng && (
+          <div className="flex flex-wrap items-center gap-4 rounded-[var(--radius-brand-sm)] border border-black/10 p-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={qrPng} alt={`Código QR de la carta ${slug}`} className="h-36 w-36" />
+            <div className="flex flex-col gap-2">
+              <p className="font-medium text-brand-ink">Código QR de tu carta</p>
+              <p className="max-w-xs text-sm text-brand-muted">
+                No expira. Imprímelo en mesas, empaques o la entrada. No cambies el enlace de tu
+                negocio después de imprimirlo.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" onClick={() => downloadFile(qrPng, `qr-carta-${slug}.png`)}>
+                  <Download className="h-4 w-4" />
+                  PNG
+                </Button>
+                <Button variant="outline" onClick={downloadSvg}>
+                  <Download className="h-4 w-4" />
+                  SVG (imprenta)
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
         <div className="flex items-center justify-between">
           <div>
             <p className="font-medium text-brand-ink">Recibiendo pedidos</p>
