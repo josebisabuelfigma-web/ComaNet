@@ -78,7 +78,7 @@ movimientos con factura opcional (imagen o PDF) y consúltalos por fecha en
    `009_horario.sql`, `010_cocina_envio_cobro_edicion.sql`, `011_finanzas_facturas.sql`,
    `012_movimientos_tercero.sql`, `013_editar_domicilio_completo.sql`,
    `014_cierre_caja_transferencias.sql`, `015_cobro_en_caja.sql`, `016_cajero_solo_lectura.sql`
-   y `017_limite_intentos.sql`.
+   `017_limite_intentos.sql` y `018_endurecer_permisos.sql`.
    (Ejecuta las migraciones nuevas ANTES de publicar el código que las usa.)
 
 ## 2. Crear el primer super administrador

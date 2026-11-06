@@ -699,9 +699,28 @@ await as(ownerA, async (s) => {
 await as(superAdmin, async (s) => {
   check((await s.q("select 1 from organizations")).length === 3, "super admin ve todas las organizaciones");
   check(!(await s.blocked("update organization_modules set enabled=false where organization_id=$1", [B])), "super admin gestiona módulos");
-  await s.q("insert into activity_log (organization_id, username, role, action) values (null,'root','super_admin','x')");
+  await s.q("insert into activity_log (organization_id, user_id, username, role, action) values (null,$1,'root','super_admin','x')", [superAdmin]);
   check(true, "super admin registra actividad sin organización");
 });
+
+// Endurecimiento (018): registro de actividad y funciones de acción
+await as(ownerA, async (s) => {
+  check(!(await s.blocked("insert into activity_log (organization_id, user_id, username, role, action) values ($1,$2,'o','owner','x')", [A, ownerA])), "owner registra actividad a su nombre");
+  check(await s.blocked("insert into activity_log (organization_id, user_id, username, role, action) values ($1,$2,'o','owner','x')", [A, cajeroA]), "no se registra actividad a nombre de otro usuario");
+  check(await s.blocked("insert into activity_log (organization_id, username, role, action) values ($1,'o','owner','x')", [A]), "no se registra actividad sin usuario");
+  check(!(await s.blocked("select * from report_sales_summary(now()-interval '1 day', now())")), "owner sigue viendo reportes");
+});
+for (const call of [
+  "select dispatch_order(gen_random_uuid())",
+  "select cancel_order(gen_random_uuid())",
+  "select open_cash_session(0)",
+  "select set_product_availability(gen_random_uuid(), true)",
+  "select * from report_sales_summary(now()-interval '1 day', now())",
+]) {
+  await as(null, async (s) => {
+    check(await s.blocked(call), `anon no puede ejecutar: ${call.slice(0, 40)}`);
+  }, "anon");
+}
 
 // Cobro de domicilio: permisos, cancelación y negocio sin módulo de caja
 await db.query("set role service_role");
