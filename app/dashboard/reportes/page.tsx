@@ -1,10 +1,13 @@
+import Link from "next/link";
+
 import { requireOrgRole } from "@/lib/auth";
-import { requireModule, MODULE_KEYS } from "@/lib/modules";
+import { isModuleEnabled, requireModule, MODULE_KEYS } from "@/lib/modules";
 import { createClient } from "@/lib/supabase/server";
-import { dayRangeToTimestamps, formatMoney, normalizeDay, todayInColombia } from "@/lib/format";
+import { dayRangeToTimestamps, formatDateTime, formatMoney, normalizeDay, todayInColombia } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import type { SalesByProductRow, SalesSummaryRow } from "@/lib/supabase/types";
+import { Badge } from "@/components/ui/badge";
+import type { CashMovement, SalesByProductRow, SalesSummaryRow } from "@/lib/supabase/types";
 
 function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
@@ -34,11 +37,35 @@ export default async function ReportesPage({
   const { from: fromTs, to: toTs } = dayRangeToTimestamps(range.from, range.to);
 
   const supabase = await createClient();
-  const [{ data: summary }, { data: byProduct }, { data: org }] = await Promise.all([
+  const [finanzasOn, cajaOn] = await Promise.all([
+    isModuleEnabled(profile.organization_id, MODULE_KEYS.FINANZAS),
+    isModuleEnabled(profile.organization_id, MODULE_KEYS.CAJA),
+  ]);
+  const showMovements = finanzasOn || cajaOn;
+
+  const [{ data: summary }, { data: byProduct }, { data: org }, { data: moves }] = await Promise.all([
     supabase.rpc("report_sales_summary", { p_from: fromTs, p_to: toTs }),
     supabase.rpc("report_sales_by_product", { p_from: fromTs, p_to: toTs }),
     supabase.from("organizations").select("currency").eq("id", profile.organization_id).single(),
+    showMovements
+      ? supabase
+          .from("cash_movements")
+          .select("*")
+          .eq("organization_id", profile.organization_id)
+          .gte("created_at", fromTs)
+          .lt("created_at", toTs)
+          .order("created_at", { ascending: false })
+          .limit(300)
+      : Promise.resolve({ data: [] as CashMovement[] }),
   ]);
+
+  const movements = (moves as CashMovement[]) ?? [];
+  const sumMoves = (type: "ingreso" | "egreso", method?: string) =>
+    movements
+      .filter((m) => m.type === type && (!method || m.payment_method === method))
+      .reduce((acc, m) => acc + Number(m.amount), 0);
+  const ingresos = sumMoves("ingreso");
+  const egresos = sumMoves("egreso");
 
   const currency = org?.currency ?? "COP";
   const money = (n: number) => formatMoney(n, currency);
@@ -59,6 +86,18 @@ export default async function ReportesPage({
   const mesaOrders = sum((r) => r.channel === "mesa", "orders_count");
   const cashTotal = sum((r) => r.payment_method === "efectivo", "total");
   const transferTotal = sum((r) => r.payment_method === "transferencia", "total");
+
+  const channels = [
+    { label: "Domicilio", match: (r: SalesSummaryRow) => r.fulfillment === "domicilio" },
+    { label: "Para recoger", match: (r: SalesSummaryRow) => r.fulfillment === "recoger" },
+    { label: "Mesa", match: (r: SalesSummaryRow) => r.channel === "mesa" },
+  ].map((c) => ({
+    label: c.label,
+    orders: sum(c.match, "orders_count"),
+    total: sum(c.match, "total"),
+    cash: sum((r) => c.match(r) && r.payment_method === "efectivo", "total"),
+    transfer: sum((r) => c.match(r) && r.payment_method === "transferencia", "total"),
+  }));
 
   // Pivot por producto (no por categoría).
   const products = new Map<string, { name: string; dom: number; mesa: number; revenue: number }>();
@@ -116,6 +155,107 @@ export default async function ReportesPage({
         <Stat label="En efectivo" value={money(cashTotal)} />
         <Stat label="Por transferencia" value={money(transferTotal)} />
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Ventas por canal</CardTitle>
+          <CardDescription>Cada venta cuenta una sola vez, según cómo se atendió.</CardDescription>
+        </CardHeader>
+        <CardContent className="overflow-x-auto">
+          <table className="w-full min-w-[520px] text-sm">
+            <thead>
+              <tr className="border-b border-brand-border text-left text-brand-muted">
+                <th className="p-2 font-medium">Canal</th>
+                <th className="p-2 text-right font-medium">Pedidos / cuentas</th>
+                <th className="p-2 text-right font-medium">Efectivo</th>
+                <th className="p-2 text-right font-medium">Transferencia</th>
+                <th className="p-2 text-right font-medium">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {channels.map((c) => (
+                <tr key={c.label} className="border-b border-brand-border last:border-0">
+                  <td className="p-2 font-medium text-brand-ink">{c.label}</td>
+                  <td className="p-2 text-right">{c.orders}</td>
+                  <td className="p-2 text-right">{money(c.cash)}</td>
+                  <td className="p-2 text-right">{money(c.transfer)}</td>
+                  <td className="p-2 text-right font-semibold">{money(c.total)}</td>
+                </tr>
+              ))}
+              <tr className="font-semibold">
+                <td className="p-2">Total ventas</td>
+                <td className="p-2 text-right">{totalOrders}</td>
+                <td className="p-2 text-right">{money(cashTotal)}</td>
+                <td className="p-2 text-right">{money(transferTotal)}</td>
+                <td className="p-2 text-right">{money(totalSales)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
+
+      {showMovements && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Ingresos y egresos</CardTitle>
+            <CardDescription>
+              Dinero que entró o salió del negocio fuera de las ventas (compras, pagos, servicios…).{" "}
+              {finanzasOn && (
+                <Link href="/dashboard/finanzas" className="underline">
+                  Registrar o ver facturas
+                </Link>
+              )}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <Stat label="Ingresos" value={money(ingresos)} hint={`Efectivo ${money(sumMoves("ingreso", "efectivo"))} · Transf. ${money(sumMoves("ingreso", "transferencia"))}`} />
+              <Stat label="Egresos (gastos)" value={money(egresos)} hint={`Efectivo ${money(sumMoves("egreso", "efectivo"))} · Transf. ${money(sumMoves("egreso", "transferencia"))}`} />
+              <Stat label="Ventas − egresos" value={money(totalSales - egresos)} hint="Lo que queda después de los gastos" />
+              <Stat label="Resultado del periodo" value={money(totalSales + ingresos - egresos)} hint="Ventas + ingresos − egresos" />
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[560px] text-sm">
+                <thead>
+                  <tr className="border-b border-brand-border text-left text-brand-muted">
+                    <th className="p-2 font-medium">Fecha y hora</th>
+                    <th className="p-2 font-medium">Descripción</th>
+                    <th className="p-2 font-medium">Medio</th>
+                    <th className="p-2 text-right font-medium">Valor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {movements.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="p-6 text-center text-brand-muted">
+                        No hay ingresos ni egresos en este rango.
+                      </td>
+                    </tr>
+                  )}
+                  {movements.map((move) => (
+                    <tr key={move.id} className="border-b border-brand-border last:border-0">
+                      <td className="whitespace-nowrap p-2">{formatDateTime(move.created_at)}</td>
+                      <td className="p-2">
+                        {move.description}{" "}
+                        {move.invoice_path && <Badge variant="muted">con factura</Badge>}
+                      </td>
+                      <td className="p-2 capitalize">{move.payment_method}</td>
+                      <td
+                        className={`whitespace-nowrap p-2 text-right font-medium ${
+                          move.type === "ingreso" ? "text-brand-success" : "text-brand-danger"
+                        }`}
+                      >
+                        {move.type === "ingreso" ? "+" : "−"}
+                        {money(Number(move.amount))}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
