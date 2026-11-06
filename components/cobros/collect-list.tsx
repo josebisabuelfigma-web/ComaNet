@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, MessageCircle, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -11,7 +11,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { PaymentDialog } from "@/components/cobros/payment-dialog";
 import { closeTable } from "@/lib/actions/mesas";
 import { closeDeliveryOrder } from "@/lib/actions/pedidos";
-import { formatMoney, formatTime } from "@/lib/format";
+import { formatMoney, formatTime, whatsappLink } from "@/lib/format";
+import { orderWhatsappMessage } from "@/lib/whatsapp-messages";
 import type { PaymentMethod } from "@/lib/supabase/types";
 
 export type CollectOrder = {
@@ -24,6 +25,10 @@ export type CollectOrder = {
   total: number;
   method: PaymentMethod | null;
   lines: string[];
+  /** Solo domicilios: para el aviso opcional de WhatsApp al cerrar. */
+  customerName?: string | null;
+  customerPhone?: string | null;
+  fulfillment?: string | null;
 };
 
 /** Mesas o domicilios por cobrar en caja. */
@@ -46,13 +51,33 @@ export function CollectList({
 }) {
   const router = useRouter();
   const [selected, setSelected] = React.useState<CollectOrder | null>(null);
+  // Domicilio recién cobrado: se ofrece (sin obligar) avisarle al cliente.
+  const [justClosed, setJustClosed] = React.useState<{ number: number; url: string } | null>(null);
 
   async function collect(order: CollectOrder, method: PaymentMethod, cashReceived: number | null) {
     const result =
       kind === "mesa"
         ? await closeTable(order.id, method, cashReceived)
         : await closeDeliveryOrder(order.id, order.number, method, cashReceived);
-    if (!result?.error) router.refresh();
+    if (!result?.error) {
+      if (kind === "domicilio") {
+        const url = whatsappLink(
+          order.customerPhone,
+          orderWhatsappMessage(
+            {
+              status: "pagada",
+              completed_at: new Date().toISOString(),
+              order_number: order.number,
+              customer_name: order.customerName ?? null,
+              fulfillment: order.fulfillment,
+            },
+            "cerrado"
+          )
+        );
+        setJustClosed(url ? { number: order.number, url } : null);
+      }
+      router.refresh();
+    }
     return result;
   }
 
@@ -77,6 +102,31 @@ export function CollectList({
             Abrir caja
           </Link>
         </p>
+      )}
+
+      {justClosed && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-brand-sm)] bg-brand-success/10 px-3 py-2 text-sm text-brand-ink">
+          <span>Pedido #{justClosed.number} cobrado y cerrado.</span>
+          <span className="flex items-center gap-2">
+            <a
+              href={justClosed.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 font-medium text-brand-success hover:underline"
+            >
+              <MessageCircle className="h-4 w-4" />
+              Avisarle al cliente por WhatsApp (opcional)
+            </a>
+            <button
+              type="button"
+              onClick={() => setJustClosed(null)}
+              className="text-brand-muted hover:text-brand-ink"
+              aria-label="Cerrar aviso"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </span>
+        </div>
       )}
 
       {orders.length === 0 ? (

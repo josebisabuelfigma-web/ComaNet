@@ -40,6 +40,9 @@ export default async function DomiciliosPorCobrarPage() {
     title: order.customer_name ?? `Pedido #${order.order_number}`,
     detail: order.fulfillment === "recoger" ? "Recoge en el local" : order.address,
     since: order.dispatched_at,
+    customerName: order.customer_name,
+    customerPhone: order.customer_phone,
+    fulfillment: order.fulfillment,
     total: Number(order.total),
     method: order.payment_method,
     lines: ((items as OrderItem[]) ?? [])

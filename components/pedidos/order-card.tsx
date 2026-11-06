@@ -23,6 +23,7 @@ import {
 } from "@/lib/actions/pedidos";
 import { formatDateTime, formatMoney, whatsappLink } from "@/lib/format";
 import { unavailableProductIds } from "@/lib/combos";
+import { orderMessageKind, orderWhatsappHint, orderWhatsappMessage } from "@/lib/whatsapp-messages";
 import type { MenuCategory, MenuComboItem, MenuProduct, Order, OrderItem } from "@/lib/supabase/types";
 
 const STATUS_BADGE: Record<string, { label: string; variant: "default" | "success" | "danger" | "muted" }> = {
@@ -81,10 +82,10 @@ export function OrderCard({
         ? { label: "Listo en cocina (aún no despachado)", variant: "success" }
         : { label: "En cocina", variant: "default" };
   const missingAddress = order.fulfillment !== "recoger" && !order.address;
-  const whatsapp = whatsappLink(
-    order.customer_phone,
-    `Hola ${order.customer_name ?? ""}, recibimos tu pedido. Antes de enviarlo a preparar, ¿quieres hacer algún cambio?`
-  );
+  // El texto del WhatsApp cambia con el estado (cambios / en camino / cerrado).
+  // Es solo un enlace: enviarlo es opcional y no afecta el pedido ni el cobro.
+  const messageKind = orderMessageKind(order);
+  const whatsapp = whatsappLink(order.customer_phone, orderWhatsappMessage(order, messageKind));
 
   async function run(action: () => Promise<{ error?: string } | void>) {
     setBusy(true);
@@ -127,7 +128,7 @@ export function OrderCard({
               >
                 <MessageCircle className="h-3.5 w-3.5" />
                 {order.customer_phone}
-                <span className="text-xs font-normal text-brand-muted">· abrir WhatsApp</span>
+                <span className="text-xs font-normal text-brand-muted">· {orderWhatsappHint(messageKind)}</span>
               </a>
             ) : (
               <p className="flex items-center gap-1.5 text-brand-muted">
