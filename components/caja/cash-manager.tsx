@@ -9,7 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { addCashMovement, closeCash, openCash } from "@/lib/actions/caja";
+import { MovementForm } from "@/components/finanzas/movement-form";
+import { closeCash, openCash } from "@/lib/actions/caja";
 import { formatDateTime, formatMoney } from "@/lib/format";
 import type { CashMovement, CashSession } from "@/lib/supabase/types";
 
@@ -21,6 +22,8 @@ interface CashManagerProps {
   transferSales: number;
   ordersCount: number;
   currency: string;
+  /** El módulo de facturas está activo: el formulario permite adjuntar factura. */
+  invoiceEnabled: boolean;
 }
 
 function Stat({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
@@ -40,21 +43,21 @@ export function CashManager({
   transferSales,
   ordersCount,
   currency,
+  invoiceEnabled,
 }: CashManagerProps) {
   const router = useRouter();
   const money = (n: number) => formatMoney(n, currency);
   const [opening, setOpening] = React.useState("");
-  const [moveType, setMoveType] = React.useState<"ingreso" | "egreso">("egreso");
-  const [moveAmount, setMoveAmount] = React.useState("");
-  const [moveDescription, setMoveDescription] = React.useState("");
   const [counted, setCounted] = React.useState("");
   const [closeNotes, setCloseNotes] = React.useState("");
   const [confirmClose, setConfirmClose] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  const ingresos = movements.filter((m) => m.type === "ingreso").reduce((s, m) => s + Number(m.amount), 0);
-  const egresos = movements.filter((m) => m.type === "egreso").reduce((s, m) => s + Number(m.amount), 0);
+  // Solo el efectivo mueve el arqueo; las transferencias se listan pero no cuentan.
+  const cashMoves = movements.filter((m) => m.payment_method === "efectivo");
+  const ingresos = cashMoves.filter((m) => m.type === "ingreso").reduce((s, m) => s + Number(m.amount), 0);
+  const egresos = cashMoves.filter((m) => m.type === "egreso").reduce((s, m) => s + Number(m.amount), 0);
   const expected = (session ? Number(session.opening_amount) : 0) + cashSales + ingresos - egresos;
   const countedNumber = Number(counted);
   const difference = counted === "" ? null : countedNumber - expected;
@@ -75,18 +78,6 @@ export function CashManager({
   async function handleOpen(event: React.FormEvent) {
     event.preventDefault();
     if (await run(() => openCash(Number(opening || 0)))) setOpening("");
-  }
-
-  async function handleMovement(event: React.FormEvent) {
-    event.preventDefault();
-    if (!session) return;
-    const ok = await run(() =>
-      addCashMovement(session.id, moveType, Number(moveAmount), moveDescription)
-    );
-    if (ok) {
-      setMoveAmount("");
-      setMoveDescription("");
-    }
   }
 
   async function handleClose() {
@@ -163,45 +154,28 @@ export function CashManager({
               <CardHeader>
                 <CardTitle>Ingresos y egresos</CardTitle>
                 <CardDescription>
-                  Gastos del turno (compras, pagos) o dinero que entra a la caja.
+                  Registra aquí los gastos del turno (compras, pagos, servicios) o el dinero que entra a la caja.
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex flex-col gap-4">
-                <form onSubmit={handleMovement} className="grid grid-cols-1 gap-2 sm:grid-cols-4">
-                  <select
-                    value={moveType}
-                    onChange={(event) => setMoveType(event.target.value as "ingreso" | "egreso")}
-                    className="h-10 rounded-[var(--radius-brand-sm)] border border-brand-border bg-white px-2 text-sm"
-                  >
-                    <option value="egreso">Egreso</option>
-                    <option value="ingreso">Ingreso</option>
-                  </select>
-                  <Input
-                    type="number"
-                    min={0}
-                    step="any"
-                    value={moveAmount}
-                    onChange={(event) => setMoveAmount(event.target.value)}
-                    placeholder="Valor"
-                    required
-                  />
-                  <Input
-                    className="sm:col-span-2"
-                    value={moveDescription}
-                    onChange={(event) => setMoveDescription(event.target.value)}
-                    placeholder="Descripción (ej: compra de gaseosas)"
-                    required
-                  />
-                  <Button type="submit" disabled={busy} className="sm:col-span-4 sm:w-fit">
-                    Registrar
-                  </Button>
-                </form>
+                <MovementForm allowInvoice={invoiceEnabled} />
                 <ul className="flex flex-col divide-y divide-brand-border text-sm">
                   {movements.length === 0 && <li className="py-2 text-brand-muted">Sin movimientos.</li>}
                   {movements.map((move) => (
                     <li key={move.id} className="flex items-center justify-between gap-2 py-2">
                       <span>
                         {move.description}
+                        {move.counterparty && <span className="ml-1 text-brand-muted">· {move.counterparty}</span>}
+                        {move.payment_method === "transferencia" && (
+                          <Badge variant="muted" className="ml-2">
+                            Transferencia · no afecta el efectivo
+                          </Badge>
+                        )}
+                        {move.invoice_path && (
+                          <Badge variant="muted" className="ml-2">
+                            con factura
+                          </Badge>
+                        )}
                         <span className="ml-2 text-xs text-brand-muted">{formatDateTime(move.created_at)}</span>
                       </span>
                       <span className={move.type === "ingreso" ? "text-brand-success" : "text-brand-danger"}>

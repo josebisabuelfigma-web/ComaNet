@@ -32,35 +32,6 @@ export async function openCash(opening: number): Promise<ActionResult> {
   revalidatePath("/dashboard/caja");
 }
 
-export async function addCashMovement(
-  sessionId: string,
-  type: "ingreso" | "egreso",
-  amount: number,
-  description: string
-): Promise<ActionResult> {
-  const profile = await cajaContext();
-
-  const parsedAmount = amountSchema.safeParse(amount);
-  if (!parsedAmount.success || parsedAmount.data <= 0) return { error: "Escribe un valor mayor a 0" };
-  const text = description.trim();
-  if (!text) return { error: "Escribe una descripción" };
-  if (type !== "ingreso" && type !== "egreso") return { error: "Tipo inválido" };
-
-  const supabase = await createClient();
-  const { error } = await supabase.rpc("register_cash_movement", {
-    p_type: type,
-    p_amount: parsedAmount.data,
-    p_description: text,
-    p_payment: "efectivo",
-    p_invoice_path: null,
-    p_invoice_name: null,
-  });
-  if (error) return { error: friendlyDbError(error, "addCashMovement", "No se pudo registrar el movimiento") };
-
-  await logActivity(profile, type === "ingreso" ? "Ingreso de caja" : "Egreso de caja", `${amount} · ${text}`);
-  revalidatePath("/dashboard/caja");
-}
-
 export async function closeCash(
   sessionId: string,
   counted: number,

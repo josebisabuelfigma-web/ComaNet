@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 
 import { requireOrgRole } from "@/lib/auth";
 import { logActivity } from "@/lib/activity";
-import { requireModule, MODULE_KEYS } from "@/lib/modules";
+import { isModuleEnabled, MODULE_KEYS } from "@/lib/modules";
 import { createClient } from "@/lib/supabase/server";
 import { friendlyDbError } from "@/lib/db-errors";
 
@@ -19,10 +19,14 @@ const INVOICE_TYPES: Record<string, string> = {
   "application/pdf": "pdf",
 };
 
-/** Registra un ingreso o egreso (con factura opcional) sin depender del módulo de caja. */
+/** Registra un ingreso o egreso (con factura opcional). Se usa desde Caja o, si no hay caja, desde Ingresos y egresos. */
 export async function registerMovement(formData: FormData): Promise<ActionResult> {
   const profile = await requireOrgRole("owner", "cajero");
-  await requireModule(profile.organization_id, MODULE_KEYS.FINANZAS);
+  const [finanzasOn, cajaOn] = await Promise.all([
+    isModuleEnabled(profile.organization_id, MODULE_KEYS.FINANZAS),
+    isModuleEnabled(profile.organization_id, MODULE_KEYS.CAJA),
+  ]);
+  if (!finanzasOn && !cajaOn) return { error: "El módulo de ingresos y egresos no está activo" };
 
   const type = String(formData.get("type") ?? "");
   const payment = String(formData.get("payment") ?? "efectivo");

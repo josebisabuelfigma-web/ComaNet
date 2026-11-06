@@ -14,7 +14,7 @@ const selectClass =
   "h-10 w-full rounded-[var(--radius-brand-sm)] border border-brand-border bg-white px-2 text-sm";
 
 /** Formulario de ingreso / egreso con factura opcional (imagen o PDF). */
-export function MovementForm() {
+export function MovementForm({ allowInvoice = true }: { allowInvoice?: boolean }) {
   const router = useRouter();
   const fileRef = React.useRef<HTMLInputElement>(null);
   const [type, setType] = React.useState<"ingreso" | "egreso">("egreso");
@@ -52,7 +52,7 @@ export function MovementForm() {
     data.set("amount", amount);
     data.set("description", description);
     data.set("counterparty", counterparty);
-    if (file) data.set("invoice", file);
+    if (file && allowInvoice) data.set("invoice", file);
 
     const result = await registerMovement(data);
     setBusy(false);
@@ -129,31 +129,33 @@ export function MovementForm() {
           <option value="transferencia">Transferencia</option>
         </select>
       </div>
-      <div className="flex flex-col gap-1.5 sm:col-span-6">
-        <Label>Factura o soporte (opcional)</Label>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" variant="outline" onClick={() => fileRef.current?.click()}>
-            <FileUp className="h-4 w-4" />
-            {file ? "Cambiar archivo" : "Subir imagen o PDF"}
-          </Button>
-          {file && (
-            <span className="flex items-center gap-1 text-sm text-brand-muted">
-              {file.name}
-              <button type="button" onClick={clearFile} aria-label="Quitar archivo">
-                <X className="h-4 w-4" />
-              </button>
-            </span>
-          )}
-          <span className="text-xs text-brand-muted">JPG, PNG, WEBP o PDF. Máximo 5 MB.</span>
+      {allowInvoice && (
+        <div className="flex flex-col gap-1.5 sm:col-span-6">
+          <Label>Factura o soporte (opcional)</Label>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="outline" onClick={() => fileRef.current?.click()}>
+              <FileUp className="h-4 w-4" />
+              {file ? "Cambiar archivo" : "Subir imagen o PDF"}
+            </Button>
+            {file && (
+              <span className="flex items-center gap-1 text-sm text-brand-muted">
+                {file.name}
+                <button type="button" onClick={clearFile} aria-label="Quitar archivo">
+                  <X className="h-4 w-4" />
+                </button>
+              </span>
+            )}
+            <span className="text-xs text-brand-muted">JPG, PNG, WEBP o PDF. Máximo 5 MB.</span>
+          </div>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,application/pdf"
+            onChange={handleFile}
+            className="sr-only"
+          />
         </div>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/jpeg,image/png,image/webp,application/pdf"
-          onChange={handleFile}
-          className="sr-only"
-        />
-      </div>
+      )}
       {error && <p className="text-sm text-brand-danger sm:col-span-6">{error}</p>}
       {saved && <p className="text-sm text-brand-success sm:col-span-6">Movimiento guardado.</p>}
       <Button type="submit" disabled={busy} className="sm:col-span-6 sm:w-fit">

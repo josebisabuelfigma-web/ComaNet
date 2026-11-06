@@ -1,5 +1,7 @@
 import { requireOrgRole } from "@/lib/auth";
-import { requireModule, MODULE_KEYS } from "@/lib/modules";
+import Link from "next/link";
+
+import { isModuleEnabled, requireModule, MODULE_KEYS } from "@/lib/modules";
 import { createClient } from "@/lib/supabase/server";
 import {
   cleanSearch,
@@ -45,6 +47,7 @@ export default async function FinanzasPage({
   const search = cleanSearch(params.q);
 
   const supabase = await createClient();
+  const cajaOn = await isModuleEnabled(profile.organization_id, MODULE_KEYS.CAJA);
   let movesQuery = supabase
     .from("cash_movements")
     .select("*")
@@ -78,7 +81,9 @@ export default async function FinanzasPage({
         <div>
           <h1 className="text-2xl font-semibold text-brand-ink">Ingresos y egresos</h1>
           <p className="text-sm text-brand-muted">
-            Registra lo que entra y sale del negocio. Adjunta la factura y consúltala después en Facturas.
+            {cajaOn
+              ? "Registro de los ingresos y egresos hechos en Caja. Para registrar uno nuevo, entra a Caja."
+              : "Registra lo que entra y sale del negocio. Adjunta la factura y consúltala después en Facturas."}
           </p>
         </div>
         <RangeFilter
@@ -89,15 +94,25 @@ export default async function FinanzasPage({
         />
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Registrar movimiento</CardTitle>
-          <CardDescription>Escribe cualquier valor, sin restricciones.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <MovementForm />
-        </CardContent>
-      </Card>
+      {cajaOn ? (
+        <p className="text-sm text-brand-muted">
+          Los movimientos se registran en{" "}
+          <Link href="/dashboard/caja" className="font-medium text-brand-ink underline">
+            Caja
+          </Link>
+          ; aquí los consultas, los buscas y ves sus facturas.
+        </p>
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle>Registrar movimiento</CardTitle>
+            <CardDescription>Escribe cualquier valor, sin restricciones.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <MovementForm />
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Stat label="Ingresos" value={money(ingresos)} tone="success" />

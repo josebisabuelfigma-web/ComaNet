@@ -1,5 +1,5 @@
 import { requireOrgRole } from "@/lib/auth";
-import { requireModule, MODULE_KEYS } from "@/lib/modules";
+import { isModuleEnabled, requireModule, MODULE_KEYS } from "@/lib/modules";
 import { createClient } from "@/lib/supabase/server";
 import { CashManager } from "@/components/caja/cash-manager";
 import type { CashMovement, CashSession, Order } from "@/lib/supabase/types";
@@ -38,7 +38,9 @@ export default async function CajaPage() {
       supabase
         .from("cash_movements")
         .select("*")
-        .eq("session_id", session.id)
+        .eq("organization_id", profile.organization_id)
+        // Los del turno (efectivo) y las transferencias hechas desde que se abrió la caja.
+        .or(`session_id.eq.${session.id},and(session_id.is.null,created_at.gte.${session.opened_at})`)
         .order("created_at", { ascending: false }),
       supabase
         .from("orders")
@@ -64,6 +66,7 @@ export default async function CajaPage() {
       transferSales={transferSales}
       ordersCount={ordersCount}
       currency={org?.currency ?? "COP"}
+      invoiceEnabled={await isModuleEnabled(profile.organization_id, MODULE_KEYS.FINANZAS)}
     />
   );
 }
