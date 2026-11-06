@@ -124,3 +124,55 @@ el detalle de la organización.
   validación de rol y organización (`sql/003_functions.sql` y siguientes).
 - Una venta cuenta cuando caja **cobra** el pedido o la mesa (`completed_at`); los
   reportes y el arqueo usan ese momento (zona horaria Colombia).
+
+## Reglas de seguridad y base de datos (OBLIGATORIAS para quien programe, incluida la IA)
+
+El software está en producción y se vende a negocios reales. Estas reglas no son
+opcionales; si un cambio las rompe, no se publica.
+
+### Migraciones SQL
+1. Cada cambio de base de datos va en un archivo nuevo `sql/NNN_nombre.sql` (el siguiente
+   número libre). Nunca se edita una migración ya aplicada.
+2. Deben ser **idempotentes** (`if not exists`, `create or replace`, `drop policy if exists`):
+   `npm run test:db` las aplica dos veces.
+3. Quien usa el proyecto las corre **a mano en el SQL Editor de Supabase**, siempre
+   **ANTES** del push si el código depende de ellas. Antes de desplegar, confirmar con una
+   consulta de solo lectura (con `.env.local`) que la migración ya está, y avisar qué SQL falta.
+4. Después de cada cambio de base: `npm run test:db` debe terminar con 0 fallidas
+   (necesita PostgreSQL sin contraseña en el puerto 54331).
+5. Agregar a `scripts/test-db.mjs` una prueba por cada regla nueva de seguridad.
+6. Listar la migración nueva en la sección 1 de este README.
+
+### RLS (políticas por fila)
+7. Toda tabla nueva en `public` lleva `alter table ... enable row level security` en la misma
+   migración. Sin RLS, cualquiera con la llave pública podría leerla.
+8. Toda política filtra por organización (`organization_id = current_profile_org()`) y por rol
+   (`current_role_in(...)`), y cuando aplica por módulo (`org_module_enabled(...)`).
+   **Prohibido** `using (true)` o `with check (true)`.
+9. No crear dos políticas permisivas para la misma tabla y operación: se suman con OR y la más
+   abierta gana. Para cambiar una, `drop policy if exists` y volver a crearla.
+10. Una tabla solo para el servidor (como `rate_limits`) lleva RLS sin políticas y
+    `revoke all ... from public, anon, authenticated`.
+11. Los escritos de actividad deben ir a nombre de quien escribe (`user_id = auth.uid()`).
+
+### Funciones SQL
+12. Las funciones que cambian datos van con `security definer` **y** `set search_path = public`,
+    y validan dentro rol y organización (nunca confiar en el cliente).
+13. **Cada función nueva** lleva en su migración `revoke all ... from public, anon` y un
+    `grant execute ... to authenticated` (o solo `service_role` si la llama el servidor).
+    Si se recrea con `drop function` + `create function`, los permisos se pierden y vuelve a
+    quedar abierta a todos: repetir siempre el `revoke` y el `grant`.
+14. Precios, totales, disponibilidad y cargos se calculan en la base, nunca se aceptan del navegador.
+
+### Código de la aplicación
+15. Toda acción del servidor (`lib/actions/*.ts`) empieza con `requireOrgRole(...)` o
+    `requireRole(...)`, y si es de un módulo, con `requireModule(...)`.
+16. La llave `service_role` (`createAdminClient`) solo se usa en el servidor y solo donde es
+    imprescindible (crear usuarios, pedidos públicos, límite de intentos). Nunca al navegador.
+17. Todo punto sin login (login, pedido público) debe tener límite de intentos con
+    `lib/rate-limit.ts`. No revelar si un usuario existe (mismo mensaje de error siempre).
+18. `.env.local` nunca se sube a git. No poner contraseñas ni llaves en el código.
+
+### Antes de dar algo por terminado
+`npx tsc --noEmit`, `npx eslint` y `npm run test:db` sin errores. Los cambios de seguridad no
+deben alterar el comportamiento que ya funciona: verificar con pruebas, no suponer.
