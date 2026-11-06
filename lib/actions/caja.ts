@@ -29,7 +29,7 @@ export async function openCash(opening: number): Promise<ActionResult> {
   if (error) return { error: friendlyDbError(error, "openCash", "No se pudo abrir la caja") };
 
   await logActivity(profile, "Abrió caja", `Base ${parsed.data}`);
-  revalidatePath("/dashboard/caja");
+  revalidatePath("/dashboard", "layout");
 }
 
 export async function closeCash(
@@ -58,5 +58,5 @@ export async function closeCash(
     "Cerró caja",
     `Efectivo: esperado ${data?.expected_cash} · contado ${parsed.data} · diferencia ${data?.difference}. Transferencias: esperado ${data?.expected_transfer} · verificado ${data?.counted_transfer} · diferencia ${data?.difference_transfer}`
   );
-  revalidatePath("/dashboard/caja");
+  revalidatePath("/dashboard", "layout");
 }

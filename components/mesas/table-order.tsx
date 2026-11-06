@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { PaymentDialog } from "@/components/cobros/payment-dialog";
 import {
   addTableItem,
   cancelTablePaymentRequest,
@@ -64,7 +65,9 @@ export function TableOrder({
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [paying, setPaying] = React.useState(false);
+  const [collecting, setCollecting] = React.useState(false);
   const [confirmCancel, setConfirmCancel] = React.useState(false);
+  const [notice, setNotice] = React.useState<string | null>(null);
 
   const total = items.reduce((sum, item) => sum + Number(item.unit_price) * item.quantity, 0);
   const visibleProducts = products.filter((p) => p.category_id === activeCategory);
@@ -81,17 +84,33 @@ export function TableOrder({
   }
 
   const unsentCount = items.filter((i) => !i.sent_to_kitchen_at).length;
+  const alreadySent = items.some((i) => i.sent_to_kitchen_at);
+
+  async function handleAdd(product: MenuProduct) {
+    if (!order) return;
+    setNotice(null);
+    const result = await run(() => addTableItem(order.id, table.id, product.id, ""));
+    if (!result?.error) {
+      setNotice(
+        kitchenEnabled
+          ? `Agregado: ${product.name}. Queda "Sin enviar" hasta que pulses el botón de cocina.`
+          : `Agregado: ${product.name}`
+      );
+    }
+  }
   const paymentRequested = !!order?.payment_requested_at;
 
-  async function handleClose(payment: PaymentMethod) {
+  async function handleCollect(payment: PaymentMethod, cashReceived: number | null) {
     if (!order) return;
-    const result = await run(() => closeTable(order.id, table.id, payment));
-    if (!result?.error) router.push("/dashboard/mesas");
+    const result = await closeTable(order.id, payment, cashReceived);
+    if (result?.error) return result;
+    router.push("/dashboard/mesas");
+    router.refresh();
   }
 
   async function handleRequestPayment(payment: PaymentMethod) {
     if (!order) return;
-    const result = await run(() => requestTablePayment(order.id, table.id, payment));
+    const result = await run(() => requestTablePayment(order.id, payment));
     if (!result?.error) {
       setPaying(false);
       router.push("/dashboard/mesas");
@@ -154,6 +173,14 @@ export function TableOrder({
               ))}
             </div>
 
+            {kitchenEnabled && alreadySent && (
+              <p className="rounded-[var(--radius-brand-sm)] bg-brand/15 px-3 py-2 text-sm text-brand-ink">
+                Esta mesa ya se envió a cocina. Puedes seguir agregando productos de la carta o cambiar cantidades:
+                cocina recibe el aviso cuando pulses <strong>Enviar cambios a cocina</strong>.
+              </p>
+            )}
+            {notice && <p className="text-sm font-medium text-brand-success">{notice}</p>}
+
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {visibleProducts.length === 0 && (
                 <p className="text-sm text-brand-muted">No hay productos en esta categoría.</p>
@@ -162,7 +189,7 @@ export function TableOrder({
                 <button
                   key={product.id}
                   disabled={busy || blocked.has(product.id)}
-                  onClick={() => run(() => addTableItem(order.id, table.id, product.id, ""))}
+                  onClick={() => handleAdd(product)}
                   className="flex items-center gap-3 rounded-[var(--radius-brand-md)] bg-white p-3 text-left shadow-sm transition hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {product.image_url ? (
@@ -215,11 +242,15 @@ export function TableOrder({
                 <Button
                   size="lg"
                   disabled={busy || unsentCount === 0}
-                  onClick={() => run(() => sendTableToKitchen(order.id, table.id))}
+                  onClick={async () => {
+                    setNotice(null);
+                    const result = await run(() => sendTableToKitchen(order.id, table.id));
+                    if (!result?.error) setNotice("Enviado a cocina.");
+                  }}
                 >
                   <ChefHat className="h-4 w-4" />
                   {unsentCount > 0
-                    ? `Enviar a cocina (${unsentCount} ${unsentCount === 1 ? "producto" : "productos"})`
+                    ? `${alreadySent ? "Enviar cambios a cocina" : "Enviar a cocina"} (${unsentCount} ${unsentCount === 1 ? "producto" : "productos"})`
                     : items.length > 0
                       ? "Todo enviado a cocina"
                       : "Enviar a cocina"}
@@ -236,78 +267,51 @@ export function TableOrder({
               {paymentRequested ? (
                 <div className="flex flex-col gap-2 rounded-[var(--radius-brand-sm)] border border-brand-danger bg-brand-danger/10 p-3">
                   <p className="text-sm font-semibold text-brand-danger">
-                    Por cobrar: el mesero recibió el pago (
-                    <span className="capitalize">{order.payment_requested_method}</span>). La mesa sigue ocupada
-                    hasta que caja lo confirme.
+                    Cuenta entregada (<span className="capitalize">{order.payment_requested_method}</span>). La mesa
+                    sigue ocupada hasta que caja reciba el pago.
                   </p>
                   {canClose ? (
-                    <>
-                      <Button disabled={busy} onClick={() => handleClose(order.payment_requested_method ?? "efectivo")}>
-                        Confirmar pago recibido y liberar mesa
-                      </Button>
-                      <p className="text-xs text-brand-muted">¿Pagó de otra forma?</p>
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={busy}
-                          onClick={() => handleClose("efectivo")}
-                        >
-                          Efectivo
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={busy}
-                          onClick={() => handleClose("transferencia")}
-                        >
-                          Transferencia
-                        </Button>
-                      </div>
-                    </>
+                    <Button disabled={busy} onClick={() => setCollecting(true)}>
+                      Cobrar y liberar mesa
+                    </Button>
                   ) : (
-                    <p className="text-sm text-brand-muted">Espera a que caja confirme el pago.</p>
+                    <p className="text-sm text-brand-muted">Caja la verá en Mesas por cobrar.</p>
                   )}
                   <Button
                     variant="ghost"
                     disabled={busy}
-                    onClick={() => run(() => cancelTablePaymentRequest(order.id, table.id))}
+                    onClick={() => run(() => cancelTablePaymentRequest(order.id))}
                   >
                     Retirar aviso y seguir editando
                   </Button>
                 </div>
               ) : paying ? (
                 <div className="flex flex-col gap-2">
-                  <p className="text-sm font-medium text-brand-ink">
-                    {canClose ? "¿Cómo paga el cliente?" : "¿Cómo te pagó el cliente?"}
-                  </p>
-                  <Button
-                    disabled={busy}
-                    onClick={() => (canClose ? handleClose("efectivo") : handleRequestPayment("efectivo"))}
-                  >
+                  <p className="text-sm font-medium text-brand-ink">¿Cómo va a pagar el cliente?</p>
+                  <Button disabled={busy} onClick={() => handleRequestPayment("efectivo")}>
                     Efectivo
                   </Button>
-                  <Button
-                    disabled={busy}
-                    variant="dark"
-                    onClick={() => (canClose ? handleClose("transferencia") : handleRequestPayment("transferencia"))}
-                  >
+                  <Button disabled={busy} variant="dark" onClick={() => handleRequestPayment("transferencia")}>
                     Transferencia
                   </Button>
-                  {!canClose && (
-                    <p className="text-xs text-brand-muted">
-                      Caja confirmará el pago y entonces la mesa quedará libre.
-                    </p>
-                  )}
+                  <p className="text-xs text-brand-muted">
+                    La mesa sigue ocupada hasta que caja reciba el pago.
+                  </p>
                   <Button variant="ghost" onClick={() => setPaying(false)}>
                     Volver
                   </Button>
                 </div>
               ) : (
                 <div className="flex flex-col gap-2">
-                  <Button disabled={busy || items.length === 0} onClick={() => setPaying(true)}>
-                    {canClose ? "Cobrar cuenta" : "Ya recibí el pago"}
-                  </Button>
+                  {canClose ? (
+                    <Button disabled={busy || items.length === 0} onClick={() => setCollecting(true)}>
+                      Cobrar cuenta
+                    </Button>
+                  ) : (
+                    <Button disabled={busy || items.length === 0} onClick={() => setPaying(true)}>
+                      Cuenta entregada
+                    </Button>
+                  )}
                   <Button variant="outline" disabled={items.length === 0} onClick={() => window.print()}>
                     <Printer className="h-4 w-4" />
                     Imprimir cuenta
@@ -323,6 +327,18 @@ export function TableOrder({
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {order && canClose && (
+        <PaymentDialog
+          open={collecting}
+          onOpenChange={setCollecting}
+          title={`Cobrar ${table.name}`}
+          total={total}
+          currency={currency}
+          defaultMethod={order.payment_requested_method}
+          onConfirm={handleCollect}
+        />
       )}
 
       <ConfirmDialog

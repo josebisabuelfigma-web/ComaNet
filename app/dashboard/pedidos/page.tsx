@@ -10,7 +10,7 @@ export default async function PedidosPage() {
   await requireModule(profile.organization_id, MODULE_KEYS.MENU_ONLINE);
   const supabase = await createClient();
 
-  const [{ data: pending }, { data: recent }, { data: org }, kitchenEnabled, { data: categories }, { data: products }, { data: comboItems }, { data: settings }] = await Promise.all([
+  const [{ data: pending }, { data: toCollect }, { data: recent }, { data: org }, kitchenEnabled, { data: categories }, { data: products }, { data: comboItems }, { data: settings }] = await Promise.all([
     supabase
       .from("orders")
       .select("*")
@@ -23,7 +23,16 @@ export default async function PedidosPage() {
       .select("*")
       .eq("organization_id", profile.organization_id)
       .eq("channel", "domicilio")
-      .in("status", ["despachado", "cancelado"])
+      .eq("status", "despachado")
+      .is("completed_at", null)
+      .order("dispatched_at", { ascending: true }),
+    supabase
+      .from("orders")
+      .select("*")
+      .eq("organization_id", profile.organization_id)
+      .eq("channel", "domicilio")
+      .in("status", ["despachado", "pagada", "cancelado"])
+      .not("completed_at", "is", null)
       .order("completed_at", { ascending: false })
       .limit(30),
     supabase.from("organizations").select("currency").eq("id", profile.organization_id).single(),
@@ -57,8 +66,9 @@ export default async function PedidosPage() {
   };
 
   const pendingOrders = (pending as Order[]) ?? [];
+  const collectOrders = (toCollect as Order[]) ?? [];
   const recentOrders = (recent as Order[]) ?? [];
-  const ids = [...pendingOrders, ...recentOrders].map((o) => o.id);
+  const ids = [...pendingOrders, ...collectOrders, ...recentOrders].map((o) => o.id);
 
   const { data: items } = ids.length
     ? await supabase.from("order_items").select("*").in("order_id", ids).order("created_at")
@@ -83,7 +93,7 @@ export default async function PedidosPage() {
       <div>
         <h1 className="text-2xl font-semibold text-brand-ink">Pedidos a domicilio</h1>
         <p className="text-sm text-brand-muted">
-          Los pedidos llegan aquí al instante. Escríbele al cliente por WhatsApp si hace falta, edita el pedido, envíalo a cocina y, cuando salga, márcalo como despachado.
+          Los pedidos llegan aquí al instante. Escríbele al cliente por WhatsApp si hace falta, edita el pedido y envíalo a cocina. Cuando salga, márcalo como enviado: queda por cobrar hasta que caja reciba el dinero.
         </p>
       </div>
 
@@ -108,6 +118,22 @@ export default async function PedidosPage() {
           </div>
         )}
       </section>
+
+      {collectOrders.length > 0 && (
+        <section className="flex flex-col gap-3">
+          <h2 className="text-lg font-semibold text-brand-ink">Enviados, por cobrar ({collectOrders.length})</h2>
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            {collectOrders.map((order) => (
+              <OrderCard
+                key={order.id}
+                order={order}
+                items={itemsByOrder.get(order.id) ?? []}
+                currency={currency}
+              />
+            ))}
+          </div>
+        </section>
+      )}
 
       {recentOrders.length > 0 && (
         <section className="flex flex-col gap-3">

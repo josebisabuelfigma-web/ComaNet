@@ -16,10 +16,32 @@ export async function dispatchOrder(orderId: string, orderNumber: number): Promi
 
   const supabase = await createClient();
   const { error } = await supabase.rpc("dispatch_order", { p_order_id: orderId });
-  if (error) return { error: friendlyDbError(error, "dispatchOrder", "No se pudo despachar el pedido") };
+  if (error) return { error: friendlyDbError(error, "dispatchOrder", "No se pudo marcar como enviado") };
 
-  await logActivity(profile, "Despachó pedido", `#${orderNumber}`);
-  revalidatePath("/dashboard/pedidos");
+  await logActivity(profile, "Envió pedido", `#${orderNumber}`);
+  revalidatePath("/dashboard", "layout");
+}
+
+/** Caja recibió el dinero (o verificó la transferencia): se cierra el pedido. */
+export async function closeDeliveryOrder(
+  orderId: string,
+  orderNumber: number,
+  payment: "efectivo" | "transferencia",
+  cashReceived: number | null = null
+): Promise<ActionResult> {
+  const profile = await requireOrgRole("owner", "cajero");
+  await requireModule(profile.organization_id, MODULE_KEYS.MENU_ONLINE);
+
+  const supabase = await createClient();
+  const { data: total, error } = await supabase.rpc("close_delivery_order", {
+    p_order_id: orderId,
+    p_payment: payment,
+    p_cash_received: payment === "efectivo" ? cashReceived : null,
+  });
+  if (error) return { error: friendlyDbError(error, "closeDeliveryOrder", "No se pudo cobrar el pedido") };
+
+  await logActivity(profile, "Cobró y cerró pedido", `#${orderNumber} · ${payment} · ${total}`);
+  revalidatePath("/dashboard", "layout");
 }
 
 export async function cancelOrder(orderId: string, orderNumber: number): Promise<ActionResult> {
@@ -30,8 +52,7 @@ export async function cancelOrder(orderId: string, orderNumber: number): Promise
   if (error) return { error: friendlyDbError(error, "cancelOrder", "No se pudo cancelar el pedido") };
 
   await logActivity(profile, "Canceló pedido", `#${orderNumber}`);
-  revalidatePath("/dashboard/pedidos");
-  revalidatePath("/dashboard/mesas");
+  revalidatePath("/dashboard", "layout");
 }
 
 async function pedidosContext() {

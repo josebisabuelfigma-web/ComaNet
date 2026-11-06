@@ -22,6 +22,11 @@ function refresh(tableId?: string) {
   if (tableId) revalidatePath(`/dashboard/mesas/${tableId}`);
 }
 
+/** Tras cambiar lo que hay por cobrar: mesas, caja y el contador del menú. */
+function refreshCollections() {
+  revalidatePath("/dashboard", "layout");
+}
+
 /** Abre una cuenta para la mesa (si ya tiene una abierta, no hace nada). */
 export async function openTable(tableId: string): Promise<ActionResult> {
   const profile = await mesaContext();
@@ -144,10 +149,9 @@ export async function sendTableToKitchen(orderId: string, tableId: string): Prom
   revalidatePath("/dashboard/cocina");
 }
 
-/** El mesero recibió el dinero: la mesa sigue ocupada hasta que caja lo confirme. */
+/** Cuenta entregada: la mesa sigue ocupada hasta que caja reciba el dinero. */
 export async function requestTablePayment(
   orderId: string,
-  tableId: string,
   payment: "efectivo" | "transferencia"
 ): Promise<ActionResult> {
   const profile = await mesaContext();
@@ -156,25 +160,25 @@ export async function requestTablePayment(
   const { error } = await supabase.rpc("request_table_payment", { p_order_id: orderId, p_payment: payment });
   if (error) return { error: friendlyDbError(error, "requestTablePayment", "No se pudo avisar a caja") };
 
-  await logActivity(profile, "Pidió cobro de mesa", payment);
-  refresh(tableId);
+  await logActivity(profile, "Entregó cuenta de mesa", payment);
+  refreshCollections();
 }
 
-export async function cancelTablePaymentRequest(orderId: string, tableId: string): Promise<ActionResult> {
+export async function cancelTablePaymentRequest(orderId: string): Promise<ActionResult> {
   await mesaContext();
   const supabase = await createClient();
 
   const { error } = await supabase.rpc("cancel_table_payment_request", { p_order_id: orderId });
   if (error) return { error: friendlyDbError(error, "cancelTablePaymentRequest", "No se pudo retirar el aviso") };
 
-  refresh(tableId);
+  refreshCollections();
 }
 
-/** Solo caja o administrador confirman el dinero y dejan la mesa libre. */
+/** Solo caja o administrador reciben el dinero y dejan la mesa libre. */
 export async function closeTable(
   orderId: string,
-  tableId: string,
-  payment: "efectivo" | "transferencia"
+  payment: "efectivo" | "transferencia",
+  cashReceived: number | null = null
 ): Promise<ActionResult> {
   const profile = await requireOrgRole("owner", "cajero");
   await requireModule(profile.organization_id, MODULE_KEYS.MESAS);
@@ -183,9 +187,10 @@ export async function closeTable(
   const { data: total, error } = await supabase.rpc("close_table_order", {
     p_order_id: orderId,
     p_payment: payment,
+    p_cash_received: payment === "efectivo" ? cashReceived : null,
   });
   if (error) return { error: friendlyDbError(error, "closeTable", "No se pudo cobrar la cuenta") };
 
-  await logActivity(profile, "Confirmó pago y cerró mesa", `${payment} · ${total}`);
-  refresh(tableId);
+  await logActivity(profile, "Cobró y cerró mesa", `${payment} · ${total}`);
+  refreshCollections();
 }

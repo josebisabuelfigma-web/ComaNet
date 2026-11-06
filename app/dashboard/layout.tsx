@@ -23,6 +23,7 @@ export default async function DashboardLayout({
   let brandLogoUrl: string | null = null;
   let currency = "COP";
   let pendingCount = 0;
+  let toCollectCount = 0;
 
   const modules =
     profile.organization_id && !isSuperAdmin
@@ -33,7 +34,7 @@ export default async function DashboardLayout({
     modules.find((m) => m.key === key)?.enabled ?? false;
 
   if (profile.organization_id && !isSuperAdmin) {
-    const [{ data: org }, { count }] = await Promise.all([
+    const [{ data: org }, { count }, { count: mesasCount }, { count: domiciliosCount }] = await Promise.all([
       supabase
         .from("organizations")
         .select("name, logo_url, currency")
@@ -44,11 +45,26 @@ export default async function DashboardLayout({
         .select("id", { count: "exact", head: true })
         .eq("organization_id", profile.organization_id)
         .eq("status", "pendiente"),
+      supabase
+        .from("orders")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", profile.organization_id)
+        .eq("channel", "mesa")
+        .eq("status", "abierta")
+        .not("payment_requested_at", "is", null),
+      supabase
+        .from("orders")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", profile.organization_id)
+        .eq("channel", "domicilio")
+        .eq("status", "despachado")
+        .is("completed_at", null),
     ]);
     brandName = org?.name ?? brandName;
     brandLogoUrl = org?.logo_url ?? null;
     currency = org?.currency ?? "COP";
     pendingCount = count ?? 0;
+    toCollectCount = (mesasCount ?? 0) + (domiciliosCount ?? 0);
   }
 
   const items: SidebarNavItem[] = [];
@@ -87,6 +103,7 @@ export default async function DashboardLayout({
         label: "Caja",
         icon: "caja",
         locked: !isModuleEnabled(MODULE_KEYS.CAJA),
+        badge: toCollectCount,
       });
     }
     if (isOwner || isCajero) {
@@ -135,7 +152,7 @@ export default async function DashboardLayout({
       {(isOwner || isCajero) && profile.organization_id && isModuleEnabled(MODULE_KEYS.MENU_ONLINE) && (
         <OrderNotifier organizationId={profile.organization_id} currency={currency} />
       )}
-      <main className="flex min-w-0 flex-1 flex-col px-4 py-6 pt-20 md:px-8 md:py-8 md:pt-8">
+      <main className="flex min-w-0 flex-1 flex-col px-4 py-6 pt-20 lg:px-8 lg:py-8 lg:pt-8">
         <div className="mx-auto w-full max-w-6xl flex-1">{children}</div>
         <BrandFooter />
       </main>

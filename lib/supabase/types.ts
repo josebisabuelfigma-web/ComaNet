@@ -146,6 +146,10 @@ export type Order = {
   kitchen_done_at: string | null;
   payment_requested_at: string | null;
   payment_requested_method: PaymentMethod | null;
+  dispatched_at: string | null;
+  dispatched_by: string | null;
+  cash_received: number | null;
+  change_given: number | null;
 };
 
 export type OrderItem = {
@@ -375,7 +379,11 @@ export type Database = {
       dispatch_order: { Args: { p_order_id: string }; Returns: undefined };
       cancel_order: { Args: { p_order_id: string }; Returns: undefined };
       close_table_order: {
-        Args: { p_order_id: string; p_payment: PaymentMethod };
+        Args: { p_order_id: string; p_payment: PaymentMethod; p_cash_received?: number | null };
+        Returns: number;
+      };
+      close_delivery_order: {
+        Args: { p_order_id: string; p_payment: PaymentMethod; p_cash_received?: number | null };
         Returns: number;
       };
       set_product_availability: {

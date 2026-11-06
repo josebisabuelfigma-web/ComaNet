@@ -96,7 +96,7 @@ export default async function CocinaPage() {
         <h1 className="text-2xl font-semibold text-brand-ink">Cocina</h1>
         <p className="text-sm text-brand-muted">
           Aquí llega lo que caja o los meseros envían a cocina. Marcar &quot;despachado&quot; solo avisa al
-          equipo: el cajero despacha y cobra aparte.
+          equipo: la salida del pedido y el cobro se hacen aparte.
         </p>
       </div>
       <KitchenBoard orders={board} history={history} />

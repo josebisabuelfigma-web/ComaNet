@@ -2,17 +2,19 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Check, ChefHat, MapPin, MessageCircle, Minus, Pencil, Phone, Plus, Store, X } from "lucide-react";
+import { Banknote, Check, ChefHat, MapPin, MessageCircle, Minus, Pencil, Phone, Plus, Store, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { PaymentDialog } from "@/components/cobros/payment-dialog";
 import {
   addDeliveryItem,
   cancelOrder,
   changeDeliveryItemQuantity,
+  closeDeliveryOrder,
   dispatchOrder,
   sendOrderToKitchen,
   updateDeliveryInfo,
@@ -25,6 +27,7 @@ import type { MenuCategory, MenuComboItem, MenuProduct, Order, OrderItem } from 
 const STATUS_BADGE: Record<string, { label: string; variant: "default" | "success" | "danger" | "muted" }> = {
   pendiente: { label: "Pendiente", variant: "default" },
   despachado: { label: "Despachado", variant: "success" },
+  pagada: { label: "Pagado", variant: "success" },
   cancelado: { label: "Cancelado", variant: "danger" },
 };
 
@@ -53,9 +56,16 @@ export function OrderCard({
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [confirmCancel, setConfirmCancel] = React.useState(false);
+  const [confirmDispatch, setConfirmDispatch] = React.useState(false);
   const [editing, setEditing] = React.useState(false);
-  const badge = STATUS_BADGE[order.status] ?? { label: order.status, variant: "muted" as const };
+  const [collecting, setCollecting] = React.useState(false);
   const pending = order.status === "pendiente";
+  // Enviado pero aún sin cobrar: sigue abierto hasta que caja reciba el dinero.
+  const toCollect = order.status === "despachado" && !order.completed_at;
+  const pickup = order.fulfillment === "recoger";
+  const badge = toCollect
+    ? { label: pickup ? "Entregado · por cobrar" : "Enviado · por cobrar", variant: "default" as const }
+    : (STATUS_BADGE[order.status] ?? { label: order.status, variant: "muted" as const });
 
   const unsent = items.filter((i) => !i.sent_to_kitchen_at).length;
   const firstSend = !items.some((i) => i.sent_to_kitchen_at);
@@ -86,7 +96,7 @@ export function OrderCard({
   }
 
   return (
-    <Card className={pending ? "border-brand" : undefined}>
+    <Card className={pending || toCollect ? "border-brand" : undefined}>
       <CardContent className="flex flex-col gap-3 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
@@ -193,7 +203,26 @@ export function OrderCard({
               Total {formatMoney(order.total, currency)} ·{" "}
               <span className="capitalize">{order.payment_method}</span>
             </p>
+            {order.cash_received !== null && (
+              <p>
+                Recibido {formatMoney(order.cash_received, currency)} · Cambio{" "}
+                {formatMoney(order.change_given ?? 0, currency)}
+              </p>
+            )}
           </div>
+
+          {toCollect && (
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button variant="outline" disabled={busy} onClick={() => setConfirmCancel(true)}>
+                <X className="h-4 w-4" />
+                Cancelar
+              </Button>
+              <Button disabled={busy} onClick={() => setCollecting(true)}>
+                <Banknote className="h-4 w-4" />
+                Cobrar
+              </Button>
+            </div>
+          )}
 
           {pending && (
             <div className="flex flex-wrap justify-end gap-2">
@@ -223,10 +252,14 @@ export function OrderCard({
               )}
               <Button
                 disabled={busy}
-                onClick={() => run(() => dispatchOrder(order.id, order.order_number))}
+                onClick={() =>
+                  kitchenEnabled && unsent > 0
+                    ? setConfirmDispatch(true)
+                    : run(() => dispatchOrder(order.id, order.order_number))
+                }
               >
                 <Check className="h-4 w-4" />
-                Marcar despachado
+                {pickup ? "Marcar entregado" : "Marcar enviado"}
               </Button>
             </div>
           )}
@@ -234,6 +267,36 @@ export function OrderCard({
 
         {error && <p className="text-sm text-brand-danger">{error}</p>}
       </CardContent>
+
+      {toCollect && (
+        <PaymentDialog
+          open={collecting}
+          onOpenChange={setCollecting}
+          title={`Cobrar pedido #${order.order_number}`}
+          total={Number(order.total)}
+          currency={currency}
+          defaultMethod={order.payment_method}
+          onConfirm={async (method, cashReceived) => {
+            const result = await closeDeliveryOrder(order.id, order.order_number, method, cashReceived);
+            if (!result?.error) router.refresh();
+            return result;
+          }}
+        />
+      )}
+
+      <ConfirmDialog
+        open={confirmDispatch}
+        onOpenChange={setConfirmDispatch}
+        title="Hay productos sin enviar a cocina"
+        description={`${unsent} ${unsent === 1 ? "producto no se ha enviado" : "productos no se han enviado"} a cocina. ¿Marcar el pedido como ${pickup ? "entregado" : "enviado"} de todas formas?`}
+        confirmLabel={pickup ? "Sí, marcar entregado" : "Sí, marcar enviado"}
+        loadingLabel="Guardando..."
+        isLoading={busy}
+        onConfirm={async () => {
+          await run(() => dispatchOrder(order.id, order.order_number));
+          setConfirmDispatch(false);
+        }}
+      />
 
       <ConfirmDialog
         open={confirmCancel}

@@ -1,7 +1,9 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +26,8 @@ interface CashManagerProps {
   currency: string;
   /** El módulo de facturas está activo: el formulario permite adjuntar factura. */
   invoiceEnabled: boolean;
+  /** Mesas y domicilios que siguen por cobrar. */
+  pendingCollections: number;
 }
 
 /** Renglón de una cuenta: "+ Ventas en efectivo ...... $X". */
@@ -57,6 +61,7 @@ export function CashManager({
   ordersCount,
   currency,
   invoiceEnabled,
+  pendingCollections,
 }: CashManagerProps) {
   const router = useRouter();
   const money = (n: number) => formatMoney(n, currency);
@@ -136,7 +141,14 @@ export function CashManager({
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-semibold text-brand-ink">Caja</h1>
+        <Link
+          href="/dashboard/caja"
+          className="mb-1 inline-flex items-center gap-1 text-sm text-brand-muted hover:text-brand-ink"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Caja
+        </Link>
+        <h1 className="text-2xl font-semibold text-brand-ink">Turno de caja</h1>
         <p className="text-sm text-brand-muted">
           Abre con la base, registra ingresos y egresos, y cierra cuadrando el efectivo y las transferencias por separado.
         </p>
@@ -250,6 +262,14 @@ export function CashManager({
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex flex-col gap-3">
+                {pendingCollections > 0 && (
+                  <p className="rounded-[var(--radius-brand-sm)] bg-brand-danger/10 px-3 py-2 text-sm text-brand-danger">
+                    Quedan {pendingCollections} por cobrar. Lo que no cobres ahora contará en el turno en que se cobre.{" "}
+                    <Link href="/dashboard/caja" className="font-medium underline">
+                      Ver cobros
+                    </Link>
+                  </p>
+                )}
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor="counted">Efectivo contado en el cajón</Label>
                   <Input

@@ -48,8 +48,13 @@ quita o cambia algo, cocina recibe un aviso ("tuvo cambios") con sonido hasta qu
 da "Entendido". Cocina marca cada producto como despachado y el sistema registra
 cuánto tardó cada pedido (y el promedio del día).
 
-**Cobro de mesas en dos pasos:** el mesero avisa "ya recibí el pago" y la mesa queda
-"Por cobrar"; solo caja o el administrador confirman el dinero y la liberan.
+**Cobro en caja:** el mesero marca "Cuenta entregada" y la mesa queda "Por cobrar";
+el domicilio marcado como enviado también queda por cobrar. Solo caja o el
+administrador lo cierran: ven el valor, escriben lo recibido, el sistema calcula el
+cambio y la venta cuenta en ese momento. Con el módulo de caja activo debe haber un
+turno abierto. Sin ese módulo se cobra desde la mesa o desde Pedidos a domicilio.
+
+**Cierre de caja:** efectivo y transferencias cuadran por separado.
 
 **Domicilios editables:** el administrador/cajero puede cambiar productos,
 cantidades, comentarios y datos del cliente mientras el pedido esté pendiente (el
@@ -70,7 +75,9 @@ movimientos con factura opcional (imagen o PDF) y consúltalos por fecha en
    `001_schema.sql`, `002_rls_policies.sql`, `003_functions.sql`,
    `004_storage_realtime.sql`, `005_seed_modules.sql`,
    `006_combos_cocina_recoger.sql`, `007_combo_disponibilidad.sql`, `008_realtime_carta.sql`,
-   `009_horario.sql`, `010_cocina_envio_cobro_edicion.sql` y `011_finanzas_facturas.sql`.
+   `009_horario.sql`, `010_cocina_envio_cobro_edicion.sql`, `011_finanzas_facturas.sql`,
+   `012_movimientos_tercero.sql`, `013_editar_domicilio_completo.sql`,
+   `014_cierre_caja_transferencias.sql` y `015_cobro_en_caja.sql`.
    (Ejecuta las migraciones nuevas ANTES de publicar el código que las usa.)
 
 ## 2. Crear el primer super administrador
@@ -110,6 +117,6 @@ el detalle de la organización.
   función `create_delivery_order`, que recalcula precios, disponibilidad,
   domicilio y desechables desde la base de datos (nunca confía en el cliente).
 - Despachar, cobrar mesa, cancelar y caja pasan por funciones SQL con
-  validación de rol y organización (`sql/003_functions.sql`).
-- Una venta cuenta cuando el pedido está **despachado** o la cuenta de mesa
-  **pagada**; los reportes y el arqueo usan ese momento (zona horaria Colombia).
+  validación de rol y organización (`sql/003_functions.sql` y siguientes).
+- Una venta cuenta cuando caja **cobra** el pedido o la mesa (`completed_at`); los
+  reportes y el arqueo usan ese momento (zona horaria Colombia).

@@ -151,20 +151,20 @@ export function Sidebar({ fullName, roleLabel, items, brandName, brandLogoUrl }:
 
   return (
     <>
-      <div className="fixed inset-x-0 top-0 z-40 flex items-center justify-between bg-brand-ink px-4 py-3 text-white md:hidden print:hidden">
+      <div className="fixed inset-x-0 top-0 z-40 flex items-center justify-between bg-brand-ink px-4 py-3 text-white lg:hidden print:hidden">
         <div className="flex items-center gap-2">
           <BrandMark url={brandLogoUrl} size={28} />
           <span className="text-sm font-semibold">{brandName}</span>
         </div>
-        <button onClick={() => setOpen(true)} aria-label="Abrir menú">
+        <button onClick={() => setOpen(true)} aria-label="Abrir menú" aria-expanded={open} className="rounded p-1 hover:bg-white/10">
           <Menu className="h-6 w-6" />
         </button>
       </div>
 
-      <aside className="hidden w-64 shrink-0 md:block print:hidden">{content}</aside>
+      <aside className="hidden w-64 shrink-0 lg:block print:hidden">{content}</aside>
 
       {open && (
-        <div className="fixed inset-0 z-50 md:hidden">
+        <div className="fixed inset-0 z-50 lg:hidden">
           <div className="absolute inset-0 bg-black/50" onClick={() => setOpen(false)} />
           <div className="absolute inset-y-0 left-0 w-64">
             <button

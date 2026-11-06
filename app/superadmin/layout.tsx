@@ -24,7 +24,7 @@ export default async function SuperAdminLayout({
         brandName="ComaNet"
         brandLogoUrl={null}
       />
-      <main className="flex min-w-0 flex-1 flex-col px-4 py-6 pt-20 md:px-8 md:py-8 md:pt-8">
+      <main className="flex min-w-0 flex-1 flex-col px-4 py-6 pt-20 lg:px-8 lg:py-8 lg:pt-8">
         <div className="mx-auto w-full max-w-5xl flex-1">{children}</div>
         <BrandFooter />
       </main>

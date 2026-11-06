@@ -270,7 +270,7 @@ await as(meseroA, async (s) => {
 await as(cajeroA, async (s) => {
   await s.q("select dispatch_order($1)", [p1.order_id]);
   const [o] = await s.q("select status, completed_at from orders where id=$1", [p1.order_id]);
-  check(o.status === "despachado" && o.completed_at, "cajero despacha pedido");
+  check(o.status === "despachado" && o.completed_at === null, "cajero marca enviado y el pedido sigue abierto");
   check((await s.error("select dispatch_order($1)", [p1.order_id]))?.includes("no está pendiente"), "no se despacha dos veces");
 });
 
@@ -300,6 +300,8 @@ await as(meseroA, async (s) => {
   check(pr.status === "abierta" && pr.payment_requested_method === "efectivo", "el mesero pide el cobro y la mesa sigue ocupada");
   check((await s.error("select close_table_order($1,'efectivo')", [o.id])) !== null, "el mesero NO cierra la mesa");
   await s.q("select set_config('request.jwt.claim.sub', $1, true)", [cajeroA]);
+  check((await s.error("select close_table_order($1,'efectivo')", [o.id]))?.includes("Abre la caja"), "sin turno abierto no se cobra");
+  await s.q("select open_cash_session(1000)");
   const total = await s.q("select close_table_order($1,'efectivo') as t", [o.id]);
   check(Number(total[0].t) === 30000, "caja confirma y el cobro de mesa suma la cuenta", JSON.stringify(total));
   check((await s.q("select status from orders where id=$1", [o.id]))[0].status === "pagada", "al confirmar caja la mesa queda libre");
@@ -327,8 +329,20 @@ await db.query("select set_config('request.jwt.claim.role','authenticated',false
 const sessionId = (await db.query("select open_cash_session(50000) as id")).rows[0].id;
 check(!!sessionId, "abre caja con base");
 check((await db.query("select open_cash_session(1) as id").then(() => false).catch((e) => e.message.includes("Ya hay una caja abierta"))), "no se abren dos cajas");
-await db.query("select close_table_order($1,'efectivo')", [openMesa.id]); // 45000 efectivo
-await db.query("select dispatch_order($1)", [p2.order_id]); // 40000 transferencia
+check((await db.query("select close_table_order($1,'efectivo',40000)", [openMesa.id]).then(() => null).catch((e) => e.message))?.includes("menor al total"), "no se cobra con menos dinero que el total");
+await db.query("select close_table_order($1,'efectivo',50000)", [openMesa.id]); // 45000 efectivo
+const [paidMesa] = (await db.query("select cash_received, change_given from orders where id=$1", [openMesa.id])).rows;
+check(Number(paidMesa.cash_received) === 50000 && Number(paidMesa.change_given) === 5000, "queda registrado lo recibido y el cambio", JSON.stringify(paidMesa));
+check((await db.query("select close_delivery_order($1,'transferencia')", [p2.order_id]).then(() => null).catch((e) => e.message))?.includes("enviado"), "no se cobra un domicilio sin enviarlo");
+await db.query("select dispatch_order($1)", [p2.order_id]);
+const [sentP2] = (await db.query("select status, completed_at, dispatched_at from orders where id=$1", [p2.order_id])).rows;
+check(sentP2.status === "despachado" && sentP2.completed_at === null && sentP2.dispatched_at !== null, "enviado queda abierto hasta cobrarlo");
+check((await db.query("select coalesce(sum(total),0)::numeric t from report_sales_summary(now() - interval '1 day', now() + interval '1 day') where channel='domicilio'")).rows[0].t == 0, "un domicilio enviado sin cobrar no cuenta como venta");
+await db.query("select close_delivery_order($1,'transferencia')", [p2.order_id]); // 40000 transferencia
+const [paidP2] = (await db.query("select status, payment_method, completed_at, cash_received from orders where id=$1", [p2.order_id])).rows;
+check(paidP2.status === "pagada" && paidP2.completed_at !== null && paidP2.cash_received === null, "caja cierra el domicilio al verificar la transferencia", JSON.stringify(paidP2));
+check((await db.query("select close_delivery_order($1,'efectivo')", [p2.order_id]).then(() => null).catch((e) => e.message))?.includes("ya está cerrado"), "no se cobra dos veces");
+check((await db.query("select cancel_order($1)", [p2.order_id]).then(() => null).catch((e) => e.message))?.includes("no se puede cancelar"), "un pedido cobrado no se cancela");
 await db.query("insert into cash_movements (organization_id, session_id, type, amount, description) values ($1,$2,'egreso',5000,'gaseosas')", [A, sessionId]);
 await db.query("insert into cash_movements (organization_id, session_id, type, amount, description) values ($1,$2,'ingreso',2000,'sencillo')", [A, sessionId]);
 await db.query("select register_cash_movement('egreso', 8000, 'proveedor', 'transferencia', null, null, 'Don Pedro')");
@@ -578,6 +592,12 @@ await as(meseroA, async (s) => {
   check((await s.q("select sent_to_kitchen_at from order_items where order_id=$1", [o.id]))[0].sent_to_kitchen_at !== null, "el mesero envía a cocina");
   await s.q("update order_items set quantity=2, notes='sin queso' where order_id=$1", [o.id]);
   check((await s.q("select description from kitchen_changes where order_id=$1 and kind='modificado'", [o.id])).length === 1, "el mesero modifica lo enviado y cocina recibe el aviso");
+  // Después de enviar, el mesero puede agregar productos NUEVOS (quedan sin enviar) y enviarlos
+  await s.q("insert into order_items (organization_id, order_id, product_id, product_name, unit_price, quantity) values ($1,$2,$3,'',0,2)", [A, o.id, papas.id]);
+  const nuevos = await s.q("select product_name, sent_to_kitchen_at from order_items where order_id=$1 and product_id=$2", [o.id, papas.id]);
+  check(nuevos.length === 1 && nuevos[0].sent_to_kitchen_at === null, "tras enviar, el mesero agrega un producto nuevo (queda sin enviar)");
+  await s.q("select send_order_to_kitchen($1)", [o.id]);
+  check((await s.q("select 1 from kitchen_changes where order_id=$1 and kind='agregado' and acked_at is null", [o.id])).length === 1, "el mesero envía lo agregado y cocina recibe el aviso");
   await s.q("select request_table_payment($1,'transferencia')", [o.id]);
   check((await s.q("select payment_requested_at from orders where id=$1", [o.id]))[0].payment_requested_at !== null, "cobro pedido por el mesero");
   await s.q("update order_items set quantity=3 where order_id=$1", [o.id]);
@@ -650,6 +670,68 @@ await as(superAdmin, async (s) => {
   await s.q("insert into activity_log (organization_id, username, role, action) values (null,'root','super_admin','x')");
   check(true, "super admin registra actividad sin organización");
 });
+
+// Cobro de domicilio: permisos, cancelación y negocio sin módulo de caja
+await db.query("set role service_role");
+await db.query("select set_config('request.jwt.claim.role','service_role', false)");
+const porCobrar = (await db.query("select * from create_delivery_order($1,$2::jsonb,'Cobro','3000000000','Calle 2','','efectivo','domicilio')", [A, JSON.stringify([{ productId: burger.id, quantity: 1 }])])).rows[0];
+await db.query("reset role");
+await db.query("select set_config('request.jwt.claim.role','', false)");
+await as(cajeroA, async (s) => {
+  await s.q("select dispatch_order($1)", [porCobrar.order_id]);
+  await switchTo(meseroA);
+  check((await s.error("select close_delivery_order($1,'efectivo')", [porCobrar.order_id])) !== null, "mesero no cobra domicilios");
+  await switchTo(cocinaA);
+  check((await s.error("select close_delivery_order($1,'efectivo')", [porCobrar.order_id])) !== null, "cocina no cobra domicilios");
+  await switchTo(ownerB);
+  check((await s.error("select close_delivery_order($1,'efectivo')", [porCobrar.order_id])) !== null, "otra organización no cobra mi domicilio");
+  await switchTo(cajeroA);
+  check((await s.error("select close_delivery_order($1,'efectivo')", [porCobrar.order_id]))?.includes("Abre la caja"), "domicilio: sin turno abierto no se cobra");
+  check(await s.blocked("update order_items set quantity=9 where order_id=$1", [porCobrar.order_id]), "un domicilio enviado ya no se edita");
+  await s.q("select cancel_order($1)", [porCobrar.order_id]);
+  check((await s.q("select status from orders where id=$1", [porCobrar.order_id]))[0].status === "cancelado", "un domicilio enviado sin cobrar se puede cancelar");
+});
+await admin("update organization_modules set enabled=false where organization_id=$1 and module_id=(select id from modules where key='caja')", [A]);
+await as(ownerA, async (s) => {
+  await s.q("select dispatch_order($1)", [porCobrar.order_id]);
+  await s.q("select close_delivery_order($1,'efectivo',30000)", [porCobrar.order_id]);
+  check((await s.q("select change_given from orders where id=$1", [porCobrar.order_id]))[0].change_given !== null, "sin el módulo de caja se cobra sin turno abierto");
+});
+await admin("update organization_modules set enabled=true where organization_id=$1 and module_id=(select id from modules where key='caja')", [A]);
+
+// Borrar un producto que está en un pedido activo (domicilio pendiente o mesa abierta)
+const [temporal] = await admin("insert into menu_products (organization_id, category_id, name, price) values ($1,$2,'Temporal',1000) returning id", [A, catA.id]);
+await db.query("set role service_role");
+await db.query("select set_config('request.jwt.claim.role','service_role', false)");
+const tmpOrder = (await db.query("select * from create_delivery_order($1,$2::jsonb,'Tmp','3000000000','Calle 1','','efectivo','domicilio')", [A, JSON.stringify([{ productId: temporal.id, quantity: 1 }, { productId: burger.id, quantity: 1 }])])).rows[0];
+await db.query("reset role");
+await db.query("select set_config('request.jwt.claim.role','', false)");
+await as(ownerA, async (s) => {
+  const err = await s.q("delete from menu_products where id=$1", [temporal.id]).then(() => null).catch((e) => e.message);
+  check(err === null, "se borra un producto que está en un domicilio pendiente", String(err));
+  const [orphans] = await s.q("select count(*)::int n from order_items i where i.order_id=$1 and i.product_id is not null and not exists (select 1 from menu_products p where p.id=i.product_id)", [tmpOrder.order_id]);
+  check(orphans.n === 0, "la línea queda desvinculada del producto borrado", JSON.stringify(orphans));
+  check((await s.q("select count(*)::int n from order_items where order_id=$1", [tmpOrder.order_id]))[0].n === 2, "la línea del pedido se conserva");
+});
+
+// Borrar una organización con pedidos activos en cocina
+const [orgTacos] = await admin("insert into organizations (name, slug) values ('Tacos C','tacos-c') returning id");
+const C = orgTacos.id;
+const [catC] = await admin("insert into menu_categories (organization_id, name) values ($1,'Tacos') returning id", [C]);
+const [taco] = await admin("insert into menu_products (organization_id, category_id, name, price) values ($1,$2,'Taco',5000) returning id", [C, catC.id]);
+const [mesaC] = await admin("insert into restaurant_tables (organization_id, name) values ($1,'Mesa 1') returning id", [C]);
+const [ordC] = await admin("insert into orders (organization_id, channel, status, table_id) values ($1,'mesa','abierta',$2) returning id", [C, mesaC.id]);
+await admin("insert into order_items (organization_id, order_id, product_id, product_name, unit_price, quantity) values ($1,$2,$3,'',0,1)", [C, ordC.id, taco.id]);
+await db.query("begin");
+await db.query("select set_config('comanet.internal','1',true)");
+await db.query("update order_items set sent_to_kitchen_at=now() where order_id=$1", [ordC.id]);
+await db.query("commit");
+await db.query("set role service_role");
+await db.query("select set_config('request.jwt.claim.role','service_role', false)");
+const delErr = await db.query("delete from organizations where id=$1", [C]).then(() => null).catch((e) => e.message);
+await db.query("reset role");
+await db.query("select set_config('request.jwt.claim.role','', false)");
+check(delErr === null, "se borra una organización con pedidos activos en cocina", String(delErr));
 
 // Módulo mesas apagado => no se abren cuentas
 await admin("update organization_modules set enabled=false where organization_id=$1 and module_id=(select id from modules where key='mesas')", [A]);

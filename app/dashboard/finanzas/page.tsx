@@ -97,7 +97,7 @@ export default async function FinanzasPage({
       {cajaOn ? (
         <p className="text-sm text-brand-muted">
           Los movimientos se registran en{" "}
-          <Link href="/dashboard/caja" className="font-medium text-brand-ink underline">
+          <Link href="/dashboard/caja/turno" className="font-medium text-brand-ink underline">
             Caja
           </Link>
           ; aquí los consultas, los buscas y ves sus facturas.

@@ -120,7 +120,7 @@ export default async function ReportesPage({
         <div>
           <h1 className="text-2xl font-semibold text-brand-ink">Reportes de ventas</h1>
           <p className="text-sm text-brand-muted">
-            Solo cuentan los pedidos despachados y las cuentas de mesa cobradas. Puedes filtrar por fecha y hora (útil para turnos que pasan de medianoche).
+            Solo cuentan los pedidos y las mesas ya cobrados en caja. Puedes filtrar por fecha y hora (útil para turnos que pasan de medianoche).
           </p>
         </div>
         <RangeFilter

@@ -86,7 +86,7 @@ export default async function MesasPage() {
                     </div>
                     {order?.payment_requested_at && (
                       <p className="text-xs font-medium text-brand-danger">
-                        Pago recibido por el mesero · falta confirmar en caja
+                        Cuenta entregada · falta cobrar en caja
                       </p>
                     )}
                     {order ? (

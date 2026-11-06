@@ -81,5 +81,5 @@ export async function registerMovement(formData: FormData): Promise<ActionResult
   );
   revalidatePath("/dashboard/finanzas");
   revalidatePath("/dashboard/facturas");
-  revalidatePath("/dashboard/caja");
+  revalidatePath("/dashboard/caja/turno");
 }
