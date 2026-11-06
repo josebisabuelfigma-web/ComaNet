@@ -17,6 +17,7 @@ export default async function DashboardLayout({
   const isSuperAdmin = profile.role === "super_admin";
   const isOwner = profile.role === "owner";
   const isCajero = profile.role === "cajero";
+  const isMesero = profile.role === "mesero";
   const isCocina = profile.role === "cocina";
 
   let brandName = "ComaNet";
@@ -89,7 +90,7 @@ export default async function DashboardLayout({
         locked: !isModuleEnabled(MODULE_KEYS.MESAS),
       });
     }
-    if (isOwner || isCajero || isCocina) {
+    if (isOwner || isCajero || isMesero || isCocina) {
       items.push({
         href: "/dashboard/cocina",
         label: "Cocina",

@@ -10,7 +10,7 @@ export default async function PedidosPage() {
   await requireModule(profile.organization_id, MODULE_KEYS.MENU_ONLINE);
   const supabase = await createClient();
 
-  const [{ data: pending }, { data: toCollect }, { data: recent }, { data: org }, kitchenEnabled, { data: categories }, { data: products }, { data: comboItems }, { data: settings }] = await Promise.all([
+  const [{ data: pending }, { data: toCollect }, { data: recent }, { data: org }, kitchenEnabled, { data: categories }, { data: products }, { data: comboItems }, { data: settings }, cajaEnabled] = await Promise.all([
     supabase
       .from("orders")
       .select("*")
@@ -56,6 +56,7 @@ export default async function PedidosPage() {
       .select("delivery_fee")
       .eq("organization_id", profile.organization_id)
       .single(),
+    isModuleEnabled(profile.organization_id, MODULE_KEYS.CAJA),
   ]);
 
   const menu = {
@@ -129,6 +130,7 @@ export default async function PedidosPage() {
                 order={order}
                 items={itemsByOrder.get(order.id) ?? []}
                 currency={currency}
+                cajaEnabled={cajaEnabled}
               />
             ))}
           </div>

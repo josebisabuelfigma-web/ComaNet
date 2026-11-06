@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Banknote, Check, ChefHat, MapPin, MessageCircle, Minus, Pencil, Phone, Plus, Store, X } from "lucide-react";
 
@@ -44,12 +45,15 @@ export function OrderCard({
   items,
   currency,
   kitchenEnabled = false,
+  cajaEnabled = false,
   menu,
 }: {
   order: Order;
   items: OrderItem[];
   currency: string;
   kitchenEnabled?: boolean;
+  /** Con el módulo de caja activo, el cobro se hace solo en Caja → Domicilios por cobrar. */
+  cajaEnabled?: boolean;
   menu?: OrderCardMenu;
 }) {
   const router = useRouter();
@@ -217,10 +221,19 @@ export function OrderCard({
                 <X className="h-4 w-4" />
                 Cancelar
               </Button>
-              <Button disabled={busy} onClick={() => setCollecting(true)}>
-                <Banknote className="h-4 w-4" />
-                Cobrar
-              </Button>
+              {cajaEnabled ? (
+                <Link href="/dashboard/caja/domicilios">
+                  <Button variant="outline">
+                    <Banknote className="h-4 w-4" />
+                    Se cobra en Caja
+                  </Button>
+                </Link>
+              ) : (
+                <Button disabled={busy} onClick={() => setCollecting(true)}>
+                  <Banknote className="h-4 w-4" />
+                  Cobrar
+                </Button>
+              )}
             </div>
           )}
 
@@ -268,7 +281,7 @@ export function OrderCard({
         {error && <p className="text-sm text-brand-danger">{error}</p>}
       </CardContent>
 
-      {toCollect && (
+      {toCollect && !cajaEnabled && (
         <PaymentDialog
           open={collecting}
           onOpenChange={setCollecting}

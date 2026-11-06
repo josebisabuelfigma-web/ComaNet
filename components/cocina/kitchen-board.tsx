@@ -55,7 +55,16 @@ function useNow() {
   return now;
 }
 
-export function KitchenBoard({ orders, history }: { orders: KitchenOrder[]; history: KitchenHistoryRow[] }) {
+export function KitchenBoard({
+  orders,
+  history,
+  readOnly = false,
+}: {
+  orders: KitchenOrder[];
+  history: KitchenHistoryRow[];
+  /** Cajero: ve la cocina pero no despacha ni confirma avisos. */
+  readOnly?: boolean;
+}) {
   const router = useRouter();
   const now = useNow();
   const [busy, setBusy] = React.useState<string | null>(null);
@@ -132,15 +141,17 @@ export function KitchenBoard({ orders, history }: { orders: KitchenOrder[]; hist
                   </li>
                 ))}
               </ul>
-              <Button
-                size="sm"
-                variant="dark"
-                className="w-fit"
-                disabled={busy === `ack-${order.id}`}
-                onClick={() => run(`ack-${order.id}`, () => ackKitchenChanges(order.id))}
-              >
-                Entendido
-              </Button>
+              {!readOnly && (
+                <Button
+                  size="sm"
+                  variant="dark"
+                  className="w-fit"
+                  disabled={busy === `ack-${order.id}`}
+                  onClick={() => run(`ack-${order.id}`, () => ackKitchenChanges(order.id))}
+                >
+                  Entendido
+                </Button>
+              )}
             </div>
           )}
 
@@ -174,15 +185,17 @@ export function KitchenBoard({ orders, history }: { orders: KitchenOrder[]; hist
                       <p className="text-xs text-brand-muted">Despachado {formatTime(item.kitchen_done_at)}</p>
                     )}
                   </div>
-                  <Button
-                    size="sm"
-                    variant={ready ? "outline" : "default"}
-                    disabled={busy === item.id}
-                    onClick={() => run(item.id, () => setItemReady(item.id, !ready))}
-                  >
-                    {ready ? <RotateCcw className="h-4 w-4" /> : <Check className="h-4 w-4" />}
-                    {ready ? "Deshacer" : "Despachar"}
-                  </Button>
+                  {!readOnly && (
+                    <Button
+                      size="sm"
+                      variant={ready ? "outline" : "default"}
+                      disabled={busy === item.id}
+                      onClick={() => run(item.id, () => setItemReady(item.id, !ready))}
+                    >
+                      {ready ? <RotateCcw className="h-4 w-4" /> : <Check className="h-4 w-4" />}
+                      {ready ? "Deshacer" : "Despachar"}
+                    </Button>
+                  )}
                 </li>
               );
             })}
@@ -190,13 +203,15 @@ export function KitchenBoard({ orders, history }: { orders: KitchenOrder[]; hist
 
           {order.notes && <p className="text-sm text-brand-muted">Observaciones: {order.notes}</p>}
 
-          <Button
-            variant={allReady ? "outline" : "dark"}
-            disabled={busy === order.id}
-            onClick={() => run(order.id, () => setOrderReady(order.id, !allReady))}
-          >
-            {allReady ? "Reabrir pedido" : "Despachar todo"}
-          </Button>
+          {!readOnly && (
+            <Button
+              variant={allReady ? "outline" : "dark"}
+              disabled={busy === order.id}
+              onClick={() => run(order.id, () => setOrderReady(order.id, !allReady))}
+            >
+              {allReady ? "Reabrir pedido" : "Despachar todo"}
+            </Button>
+          )}
         </CardContent>
       </Card>
     );
@@ -205,7 +220,12 @@ export function KitchenBoard({ orders, history }: { orders: KitchenOrder[]; hist
   return (
     <div className="flex flex-col gap-6">
       {error && <p className="text-sm text-brand-danger">{error}</p>}
-      {!soundOn && (
+      {readOnly && (
+        <p className="rounded-[var(--radius-brand-sm)] bg-black/5 px-3 py-2 text-sm text-brand-muted">
+          Estás viendo la cocina en modo de solo lectura: el despacho lo hace cocina o el administrador.
+        </p>
+      )}
+      {!readOnly && !soundOn && (
         <p className="rounded-[var(--radius-brand-sm)] bg-brand/15 px-3 py-2 text-sm text-brand-ink">
           🔔 Toca cualquier parte de la pantalla para activar el sonido de los avisos.
         </p>

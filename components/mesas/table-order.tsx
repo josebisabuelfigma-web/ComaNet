@@ -46,6 +46,10 @@ interface TableOrderProps {
   canClose: boolean;
   /** El módulo de cocina está activo: se puede enviar el pedido a cocina. */
   kitchenEnabled: boolean;
+  /** Con el módulo de caja activo, el cobro se hace solo en Caja → Mesas por cobrar. */
+  cajaEnabled: boolean;
+  /** Cajero: ve la mesa y su cuenta, pero no la edita (el cobro es en Caja). */
+  readOnly: boolean;
 }
 
 export function TableOrder({
@@ -59,6 +63,8 @@ export function TableOrder({
   canCancel,
   canClose,
   kitchenEnabled,
+  cajaEnabled,
+  readOnly,
 }: TableOrderProps) {
   const router = useRouter();
   const [activeCategory, setActiveCategory] = React.useState<string | null>(categories[0]?.id ?? null);
@@ -99,6 +105,8 @@ export function TableOrder({
     }
   }
   const paymentRequested = !!order?.payment_requested_at;
+  // Se cobra aquí solo si el negocio no tiene el módulo de caja.
+  const chargeHere = canClose && !cajaEnabled;
 
   async function handleCollect(payment: PaymentMethod, cashReceived: number | null) {
     if (!order) return;
@@ -147,16 +155,18 @@ export function TableOrder({
         <Card>
           <CardContent className="flex flex-col items-center gap-4 p-10 text-center">
             <p className="text-brand-muted">Esta mesa está libre.</p>
-            <Button size="lg" disabled={busy} onClick={() => run(() => openTable(table.id))}>
-              Abrir mesa y tomar pedido
-            </Button>
+            {!readOnly && (
+              <Button size="lg" disabled={busy} onClick={() => run(() => openTable(table.id))}>
+                Abrir mesa y tomar pedido
+              </Button>
+            )}
             {error && <p className="text-sm text-brand-danger">{error}</p>}
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+        <div className={`grid grid-cols-1 gap-5 ${readOnly ? "max-w-xl" : "lg:grid-cols-3"}`}>
           {/* Carta */}
-          <div className="flex flex-col gap-3 lg:col-span-2 print:hidden">
+          <div className={`flex flex-col gap-3 lg:col-span-2 print:hidden ${readOnly ? "hidden" : ""}`}>
             <div className="flex gap-2 overflow-x-auto pb-1">
               {categories.map((category) => (
                 <button
@@ -232,13 +242,14 @@ export function TableOrder({
                     currency={currency}
                     disabled={busy}
                     kitchenEnabled={kitchenEnabled}
+                    readOnly={readOnly}
                     onQuantity={(q) => run(() => changeTableItemQuantity(item.id, table.id, q))}
                     onNotes={(notes) => run(() => updateTableItemNotes(item.id, table.id, notes))}
                   />
                 ))}
               </ul>
 
-              {kitchenEnabled && (
+              {kitchenEnabled && !readOnly && (
                 <Button
                   size="lg"
                   disabled={busy || unsentCount === 0}
@@ -264,16 +275,43 @@ export function TableOrder({
 
               {error && <p className="text-sm text-brand-danger">{error}</p>}
 
-              {paymentRequested ? (
+              {readOnly ? (
+                <div className="flex flex-col gap-2">
+                  {paymentRequested && (
+                    <p className="rounded-[var(--radius-brand-sm)] border border-brand-danger bg-brand-danger/10 p-3 text-sm font-semibold text-brand-danger">
+                      Cuenta entregada (<span className="capitalize">{order.payment_requested_method}</span>): falta
+                      cobrarla.
+                    </p>
+                  )}
+                  {paymentRequested && chargeHere && (
+                    <Button disabled={busy} onClick={() => setCollecting(true)}>
+                      Cobrar y liberar mesa
+                    </Button>
+                  )}
+                  {paymentRequested && !chargeHere && cajaEnabled && (
+                    <Link href="/dashboard/caja/mesas">
+                      <Button className="w-full">Cobrar en Caja → Mesas por cobrar</Button>
+                    </Link>
+                  )}
+                  <Button variant="outline" disabled={items.length === 0} onClick={() => window.print()}>
+                    <Printer className="h-4 w-4" />
+                    Imprimir cuenta
+                  </Button>
+                </div>
+              ) : paymentRequested ? (
                 <div className="flex flex-col gap-2 rounded-[var(--radius-brand-sm)] border border-brand-danger bg-brand-danger/10 p-3">
                   <p className="text-sm font-semibold text-brand-danger">
                     Cuenta entregada (<span className="capitalize">{order.payment_requested_method}</span>). La mesa
                     sigue ocupada hasta que caja reciba el pago.
                   </p>
-                  {canClose ? (
+                  {chargeHere ? (
                     <Button disabled={busy} onClick={() => setCollecting(true)}>
                       Cobrar y liberar mesa
                     </Button>
+                  ) : canClose ? (
+                    <Link href="/dashboard/caja/mesas">
+                      <Button className="w-full">Cobrar en Caja → Mesas por cobrar</Button>
+                    </Link>
                   ) : (
                     <p className="text-sm text-brand-muted">Caja la verá en Mesas por cobrar.</p>
                   )}
@@ -303,7 +341,7 @@ export function TableOrder({
                 </div>
               ) : (
                 <div className="flex flex-col gap-2">
-                  {canClose ? (
+                  {chargeHere ? (
                     <Button disabled={busy || items.length === 0} onClick={() => setCollecting(true)}>
                       Cobrar cuenta
                     </Button>
@@ -329,7 +367,7 @@ export function TableOrder({
         </div>
       )}
 
-      {order && canClose && (
+      {order && chargeHere && (
         <PaymentDialog
           open={collecting}
           onOpenChange={setCollecting}
@@ -359,6 +397,7 @@ function CartLine({
   currency,
   disabled,
   kitchenEnabled,
+  readOnly,
   onQuantity,
   onNotes,
 }: {
@@ -366,6 +405,7 @@ function CartLine({
   currency: string;
   disabled: boolean;
   kitchenEnabled: boolean;
+  readOnly: boolean;
   onQuantity: (quantity: number) => void;
   onNotes: (notes: string) => void;
 }) {
@@ -393,28 +433,33 @@ function CartLine({
           )}
           <p className="text-xs text-brand-muted">{formatMoney(item.unit_price, currency)} c/u</p>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-7 w-7"
-            disabled={disabled}
-            onClick={() => onQuantity(item.quantity - 1)}
-          >
-            <Minus className="h-3.5 w-3.5" />
-          </Button>
-          <span className="w-6 text-center text-sm">{item.quantity}</span>
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-7 w-7"
-            disabled={disabled}
-            onClick={() => onQuantity(item.quantity + 1)}
-          >
-            <Plus className="h-3.5 w-3.5" />
-          </Button>
-        </div>
+        {readOnly ? <span className="text-sm font-medium">× {item.quantity}</span> : (
+          <div className="flex shrink-0 items-center gap-1">
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-7 w-7"
+              disabled={disabled}
+              onClick={() => onQuantity(item.quantity - 1)}
+            >
+              <Minus className="h-3.5 w-3.5" />
+            </Button>
+            <span className="w-6 text-center text-sm">{item.quantity}</span>
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-7 w-7"
+              disabled={disabled}
+              onClick={() => onQuantity(item.quantity + 1)}
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        )}
       </div>
+      {readOnly ? (
+        item.notes && <p className="text-xs text-brand-danger">📝 {item.notes}</p>
+      ) : (
       <input
         value={notes}
         onChange={(event) => setNotes(event.target.value)}
@@ -423,6 +468,7 @@ function CartLine({
         placeholder="Comentario (ej: sin cebolla)"
         className="h-8 rounded-[var(--radius-brand-sm)] border border-brand-border px-2 text-xs print:border-0"
       />
+      )}
     </li>
   );
 }

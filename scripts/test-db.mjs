@@ -608,6 +608,38 @@ await as(meseroA, async (s) => {
   check((await s.error("select ack_kitchen_changes($1)", [o.id])) !== null, "mesero no marca avisos de cocina");
 });
 
+// Cajero: solo ve cocina y mesas (no las edita); cobra en Caja
+const [mesa6] = await admin("insert into restaurant_tables (organization_id, name) values ($1,'Mesa 6') returning id", [A]);
+const [ordMesa6] = await admin("insert into orders (organization_id, channel, status, table_id) values ($1,'mesa','abierta',$2) returning id", [A, mesa6.id]);
+await admin("insert into order_items (organization_id, order_id, product_id, product_name, unit_price, quantity) values ($1,$2,$3,'',0,1)", [A, ordMesa6.id, burger.id]);
+await db.query("begin");
+await db.query("select set_config('comanet.internal','1',true)");
+await db.query("update order_items set sent_to_kitchen_at=now() where order_id=$1", [ordMesa6.id]);
+await db.query("commit");
+const [itemMesa6] = await admin("select id from order_items where order_id=$1", [ordMesa6.id]);
+const [mesa7] = await admin("insert into restaurant_tables (organization_id, name) values ($1,'Mesa 7') returning id", [A]);
+await as(cajeroA, async (s) => {
+  check((await s.q("select 1 from orders where id=$1", [ordMesa6.id])).length === 1, "el cajero VE las mesas");
+  check((await s.q("select 1 from order_items where order_id=$1", [ordMesa6.id])).length === 1, "el cajero VE la cuenta de la mesa");
+  check(await s.blocked("insert into orders (organization_id, channel, status, table_id) values ($1,'mesa','abierta',$2)", [A, mesa7.id]), "el cajero NO abre mesas");
+  check(await s.blocked("insert into order_items (organization_id, order_id, product_id, product_name, unit_price, quantity) values ($1,$2,$3,'',0,1)", [A, ordMesa6.id, burger.id]), "el cajero NO agrega productos a una mesa");
+  check(await s.blocked("update order_items set quantity=5 where order_id=$1", [ordMesa6.id]), "el cajero NO cambia cantidades de una mesa");
+  check(await s.blocked("delete from order_items where order_id=$1", [ordMesa6.id]), "el cajero NO quita productos de una mesa");
+  check((await s.error("select send_order_to_kitchen($1)", [ordMesa6.id])) !== null, "el cajero NO envía una mesa a cocina");
+  check((await s.error("select request_table_payment($1,'efectivo')", [ordMesa6.id])) !== null, "el cajero NO marca cuenta entregada");
+  check((await s.error("select cancel_order($1)", [ordMesa6.id]))?.includes("administrador"), "el cajero NO cancela una mesa");
+  check((await s.error("select set_item_kitchen_status($1,true)", [itemMesa6.id])) !== null, "el cajero NO despacha en cocina");
+  check((await s.error("select set_order_kitchen_status($1,true)", [ordMesa6.id])) !== null, "el cajero NO despacha un pedido en cocina");
+  check((await s.error("select ack_kitchen_changes($1)", [ordMesa6.id])) !== null, "el cajero NO confirma avisos de cocina");
+});
+await as(ownerA, async (s) => {
+  await s.q("select set_item_kitchen_status($1,true)", [itemMesa6.id]);
+  check((await s.q("select kitchen_status from order_items where id=$1", [itemMesa6.id]))[0].kitchen_status === "listo", "el administrador sí despacha en cocina");
+  await s.q("select request_table_payment($1,'efectivo')", [ordMesa6.id]);
+  await s.q("select cancel_order($1)", [ordMesa6.id]);
+  check((await s.q("select status from orders where id=$1", [ordMesa6.id]))[0].status === "cancelado", "el administrador sí cancela una mesa");
+});
+
 // Ingresos, egresos y facturas (módulo independiente de caja)
 await as(cajeroA, async (s) => {
   const path = A + "/f1.pdf";

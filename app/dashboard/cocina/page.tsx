@@ -7,7 +7,7 @@ import { KitchenBoard, type KitchenHistoryRow, type KitchenOrder } from "@/compo
 import type { KitchenChange, Order, OrderItem, RestaurantTable } from "@/lib/supabase/types";
 
 export default async function CocinaPage() {
-  const profile = await requireOrgRole("owner", "cajero", "cocina");
+  const profile = await requireOrgRole("owner", "cajero", "mesero", "cocina");
   await requireModule(profile.organization_id, MODULE_KEYS.COCINA);
   const supabase = await createClient();
   const today = todayInColombia();
@@ -99,7 +99,7 @@ export default async function CocinaPage() {
           equipo: la salida del pedido y el cobro se hacen aparte.
         </p>
       </div>
-      <KitchenBoard orders={board} history={history} />
+      <KitchenBoard orders={board} history={history} readOnly={profile.role === "cajero" || profile.role === "mesero"} />
     </div>
   );
 }

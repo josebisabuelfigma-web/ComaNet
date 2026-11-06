@@ -39,7 +39,14 @@ export default async function CuentaPage() {
         </p>
       </div>
 
-      <ChangePasswordForm />
+      {profile.role === "owner" || profile.role === "super_admin" ? (
+        <ChangePasswordForm />
+      ) : (
+        <div className="rounded-[var(--radius-brand-md)] border border-brand-border bg-white p-4 text-sm text-brand-muted">
+          Tu contraseña la gestiona el administrador del negocio. Si la olvidaste o quieres cambiarla,
+          pídesela a él.
+        </div>
+      )}
 
       {profile.role === "owner" && <StaffManager staff={staff} maxUsuarios={maxUsuarios} />}
     </div>

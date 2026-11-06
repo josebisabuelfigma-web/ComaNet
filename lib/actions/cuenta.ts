@@ -15,6 +15,11 @@ export async function changePassword(
   formData: FormData
 ): Promise<ActionResult> {
   const profile = await requireProfile();
+  // Los usuarios del equipo (cajero, mesero, cocina) no cambian su contraseña:
+  // la restablece el administrador desde Mi Cuenta → Usuarios.
+  if (profile.role !== "owner" && profile.role !== "super_admin") {
+    return { error: "Tu contraseña la cambia el administrador del negocio." };
+  }
 
   const parsed = changePasswordSchema.safeParse({
     password: formData.get("password"),

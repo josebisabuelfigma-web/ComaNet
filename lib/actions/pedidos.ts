@@ -55,6 +55,11 @@ export async function cancelOrder(orderId: string, orderNumber: number): Promise
   revalidatePath("/dashboard", "layout");
 }
 
+async function orderNumberOf(supabase: Awaited<ReturnType<typeof createClient>>, orderId: string) {
+  const { data } = await supabase.from("orders").select("order_number").eq("id", orderId).maybeSingle();
+  return data ? `#${data.order_number}` : "";
+}
+
 async function pedidosContext() {
   const profile = await requireOrgRole("owner", "cajero");
   await requireModule(profile.organization_id, MODULE_KEYS.MENU_ONLINE);
@@ -106,6 +111,9 @@ export async function addDeliveryItem(
     if (error) return { error: friendlyDbError(error, "addDeliveryItem:insert", "No se pudo agregar el producto") };
   }
 
+  const { data: product } = await supabase.from("menu_products").select("name").eq("id", productId).maybeSingle();
+  await logActivity(profile, "Editó pedido", `${await orderNumberOf(supabase, orderId)}: agregó ${product?.name ?? "producto"}`);
+
   revalidatePath("/dashboard/pedidos");
   revalidatePath("/dashboard/cocina");
 }
@@ -115,8 +123,14 @@ export async function changeDeliveryItemQuantity(
   itemId: string,
   quantity: number
 ): Promise<ActionResult> {
-  await pedidosContext();
+  const profile = await pedidosContext();
   const supabase = await createClient();
+
+  const { data: before } = await supabase
+    .from("order_items")
+    .select("product_name, quantity")
+    .eq("id", itemId)
+    .maybeSingle();
 
   if (quantity <= 0) {
     const { count } = await supabase
@@ -136,19 +150,43 @@ export async function changeDeliveryItemQuantity(
     if (error) return { error: friendlyDbError(error, "changeDeliveryItemQuantity", "No se pudo actualizar el producto") };
   }
 
+  if (before) {
+    await logActivity(
+      profile,
+      "Editó pedido",
+      `${await orderNumberOf(supabase, orderId)}: ${
+        quantity <= 0 ? "quitó" : `cambió cantidad de (${before.quantity} → ${quantity})`
+      } ${before.product_name}`
+    );
+  }
+
   revalidatePath("/dashboard/pedidos");
   revalidatePath("/dashboard/cocina");
 }
 
 export async function updateDeliveryItemNotes(itemId: string, notes: string): Promise<ActionResult> {
-  await pedidosContext();
+  const profile = await pedidosContext();
   const supabase = await createClient();
+
+  const { data: line } = await supabase
+    .from("order_items")
+    .select("product_name, order_id")
+    .eq("id", itemId)
+    .maybeSingle();
 
   const { error } = await supabase
     .from("order_items")
     .update({ notes: notes.trim().slice(0, 200) || null })
     .eq("id", itemId);
   if (error) return { error: friendlyDbError(error, "updateDeliveryItemNotes", "No se pudo guardar el comentario") };
+
+  if (line) {
+    await logActivity(
+      profile,
+      "Editó pedido",
+      `${await orderNumberOf(supabase, line.order_id)}: comentario de ${line.product_name} · ${notes.trim().slice(0, 80) || "sin comentario"}`
+    );
+  }
 
   revalidatePath("/dashboard/pedidos");
   revalidatePath("/dashboard/cocina");

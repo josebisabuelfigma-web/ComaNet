@@ -8,6 +8,7 @@ import { KeyRound, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import {
@@ -148,7 +149,7 @@ export function StaffManager({ staff, maxUsuarios }: StaffManagerProps) {
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="password">Contraseña inicial</Label>
-              <Input id="password" name="password" type="password" required minLength={8} />
+              <PasswordInput id="password" name="password" required minLength={8} />
             </div>
 
             {state?.error && <p className="text-sm text-brand-danger">{state.error}</p>}
@@ -180,8 +181,7 @@ export function StaffManager({ staff, maxUsuarios }: StaffManagerProps) {
             <DialogTitle>Nueva contraseña para @{resetting?.username}</DialogTitle>
           </DialogHeader>
           <div className="flex flex-col gap-3">
-            <Input
-              type="password"
+            <PasswordInput
               minLength={8}
               placeholder="Mínimo 8 caracteres"
               value={newPassword}

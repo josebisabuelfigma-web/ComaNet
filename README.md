@@ -77,7 +77,7 @@ movimientos con factura opcional (imagen o PDF) y consúltalos por fecha en
    `006_combos_cocina_recoger.sql`, `007_combo_disponibilidad.sql`, `008_realtime_carta.sql`,
    `009_horario.sql`, `010_cocina_envio_cobro_edicion.sql`, `011_finanzas_facturas.sql`,
    `012_movimientos_tercero.sql`, `013_editar_domicilio_completo.sql`,
-   `014_cierre_caja_transferencias.sql` y `015_cobro_en_caja.sql`.
+   `014_cierre_caja_transferencias.sql`, `015_cobro_en_caja.sql` y `016_cajero_solo_lectura.sql`.
    (Ejecuta las migraciones nuevas ANTES de publicar el código que las usa.)
 
 ## 2. Crear el primer super administrador

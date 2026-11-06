@@ -97,7 +97,7 @@ export default async function MesasPage() {
                         </span>
                       </p>
                     ) : (
-                      <p className="text-sm text-brand-muted">Toca para abrir</p>
+                      <p className="text-sm text-brand-muted">{profile.role === "cajero" ? "Libre" : "Toca para abrir"}</p>
                     )}
                   </CardContent>
                 </Card>

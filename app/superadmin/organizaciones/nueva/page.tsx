@@ -7,6 +7,7 @@ import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { createOrganization } from "@/lib/actions/superadmin";
 
@@ -70,7 +71,7 @@ export default function NuevaOrganizacionPage() {
 
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="ownerPassword">Contraseña inicial</Label>
-              <Input id="ownerPassword" name="ownerPassword" type="password" required minLength={8} />
+              <PasswordInput id="ownerPassword" name="ownerPassword" required minLength={8} />
             </div>
 
             {state?.error && <p className="text-sm text-brand-danger">{state.error}</p>}
